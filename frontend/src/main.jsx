@@ -19,15 +19,17 @@ const root = document.getElementById('root');
 if (domain && clientId) {
   createRoot(root).render(
     <Auth0Provider
-      domain={domain}
-      clientId={clientId}
-      authorizationParams={{
-        redirect_uri: window.location.origin,
-        audience: import.meta.env.VITE_AUTH0_AUDIENCE,
-      }}
-    >
-      {storefront}
-    </Auth0Provider>,
+  domain={domain}
+  clientId={clientId}
+  authorizationParams={{
+    redirect_uri: window.location.origin,
+    audience: import.meta.env.VITE_AUTH0_AUDIENCE,
+  }}
+  cacheLocation="localstorage"
+  useRefreshTokens={true}
+>
+  {storefront}
+</Auth0Provider>,
   );
 } else {
   createRoot(root).render(storefront);
