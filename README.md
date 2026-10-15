@@ -1,6 +1,5 @@
 # Northline Outdoor — Django REST + Agentic AI Commerce
 
-An independent **Django/DRF + React/MUI** outdoor store, built as a portfolio-oriented, local-first project. No Flask service, `original_ai` directory, or migration bridge is required.
 
 ## Architecture
 
