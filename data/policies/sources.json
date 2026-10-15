@@ -1,0 +1,50 @@
+[
+  {
+    "document_id": "STORE-RETURN-001",
+    "title": "Returns and Exchanges (Demo Store)",
+    "category": "returns",
+    "source": "northline_demo_policy",
+    "source_url": "",
+    "file_path": "data/policies/notes/STORE-RETURN-001.md"
+  },
+  {
+    "document_id": "STORE-DELIVERY-001",
+    "title": "Delivery, Tracking and Missing Items (Demo Store)",
+    "category": "delivery",
+    "source": "northline_demo_policy",
+    "source_url": "",
+    "file_path": "data/policies/notes/STORE-DELIVERY-001.md"
+  },
+  {
+    "document_id": "STORE-CANCEL-001",
+    "title": "Order Cancellation (Demo Store)",
+    "category": "cancellation",
+    "source": "northline_demo_policy",
+    "source_url": "",
+    "file_path": "data/policies/notes/STORE-CANCEL-001.md"
+  },
+  {
+    "document_id": "STORE-PAYMENT-001",
+    "title": "Payments and Refunds (Demo Store)",
+    "category": "payments",
+    "source": "northline_demo_policy",
+    "source_url": "",
+    "file_path": "data/policies/notes/STORE-PAYMENT-001.md"
+  },
+  {
+    "document_id": "STORE-SUPPORT-001",
+    "title": "Customer Support and Human Approval (Demo Store)",
+    "category": "support",
+    "source": "northline_demo_policy",
+    "source_url": "",
+    "file_path": "data/policies/notes/STORE-SUPPORT-001.md"
+  },
+  {
+    "document_id": "STORE-INVENTORY-001",
+    "title": "Inventory, Cart and Checkout (Demo Store)",
+    "category": "inventory",
+    "source": "northline_demo_policy",
+    "source_url": "",
+    "file_path": "data/policies/notes/STORE-INVENTORY-001.md"
+  }
+]
