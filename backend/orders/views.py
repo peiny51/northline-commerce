@@ -1,4 +1,4 @@
-
+import logging
 import os
 import uuid
 
@@ -20,6 +20,9 @@ from .services import (
     release_reservation,
     reserve_checkout,
 )
+
+
+logger = logging.getLogger(__name__)
 
 
 @api_view(["GET", "POST"])
@@ -75,7 +78,7 @@ def cart(request):
             )
 
         if cart_item is None:
-            # CartItem.quantity has a database constraint requiring > 0.
+            # Create with a positive quantity to satisfy the DB constraint.
             CartItem.objects.create(
                 user=request.user,
                 variant=variant,
@@ -115,7 +118,7 @@ def cart_item(request, item_id):
             user=request.user,
         )
 
-        # Use the same lock order as the add-to-cart operation.
+        # Keep the same lock order as the add-to-cart operation.
         variant = get_object_or_404(
             ProductVariant.objects.select_for_update(),
             pk=existing_item.variant_id,
@@ -149,7 +152,6 @@ def stripe_checkout(order, request):
     stripe.api_key = os.environ["STRIPE_SECRET_KEY"]
 
     items = list(order.items.all())
-
     line_items = []
 
     for item in items:
@@ -246,12 +248,17 @@ def checkout(request):
             request,
         )
     except Exception:
-        # Release stock only when this request created the order.
+        # Only newly created orders can release this reservation.
         if created:
             release_reservation(
                 order.id,
                 restore_cart=True,
             )
+
+        logger.exception(
+            "Unable to create Stripe Checkout for order %s.",
+            order.id,
+        )
 
         raise ValidationError(
             "Unable to start Stripe Checkout."
@@ -305,7 +312,7 @@ def stripe_webhook(request):
         )
 
     try:
-        # Never trust an unsigned Stripe webhook payload.
+        # Reject unsigned or tampered webhook payloads.
         event = stripe.Webhook.construct_event(
             request.body,
             request.headers.get("Stripe-Signature", ""),
@@ -320,6 +327,8 @@ def stripe_webhook(request):
             status=400,
         )
 
+    event_type = event["type"]
+
     relevant_events = {
         "checkout.session.completed",
         "checkout.session.expired",
@@ -327,49 +336,153 @@ def stripe_webhook(request):
         "checkout.session.async_payment_failed",
     }
 
-    if event["type"] not in relevant_events:
+    if event_type not in relevant_events:
         return JsonResponse({"received": True})
 
     session = event["data"]["object"]
+    session_id = session.get("id")
     order_id = session.get("client_reference_id")
 
     try:
+        order_uuid = uuid.UUID(str(order_id))
+    except (ValueError, TypeError):
+        logger.error(
+            "Invalid order ID in Stripe event %s.",
+            event["id"],
+        )
+
+        return JsonResponse(
+            {"error": "Invalid order reference"},
+            status=400,
+        )
+
+    try:
         with transaction.atomic():
-            # Prevent processing the same Stripe event twice.
-            _, is_new_event = StripeEvent.objects.get_or_create(
-                event_id=event["id"]
-            )
-
-            if not is_new_event:
-                return JsonResponse({"received": True})
-
+            # Serialize all payment events for the same order.
             order = (
                 Order.objects
                 .select_for_update()
-                .get(pk=uuid.UUID(order_id))
+                .get(pk=order_uuid)
             )
 
-            if order.stripe_session_id != session.get("id"):
+            if order.stripe_session_id != session_id:
                 raise ValueError(
-                    "Stripe session does not match order."
+                    "Stripe Session does not match the order."
                 )
 
-            if event["type"] in {
+            # A successfully processed event must never run twice.
+            # The event record rolls back if processing raises an exception.
+            _, created = StripeEvent.objects.get_or_create(
+                event_id=event["id"],
+            )
+
+            if not created:
+                return JsonResponse({"received": True})
+
+            if event_type in {
                 "checkout.session.completed",
                 "checkout.session.async_payment_succeeded",
             }:
+                # Checkout completion alone does not guarantee payment.
                 if session.get("payment_status") == "paid":
-                    finalize_payment(order.id)
-            else:
-                release_reservation(
-                    order.id,
-                    expired=True,
-                )
+                    amount = session.get("amount_total")
+                    currency = session.get("currency")
 
-    except (ValueError, TypeError, Order.DoesNotExist):
+                    if (
+                        currency != "cad"
+                        or amount != order.total_cents
+                    ):
+                        raise ValueError(
+                            "Stripe payment amount or currency mismatch."
+                        )
+
+                    # Never reactivate an order whose stock was released.
+                    # Such payments require reconciliation.
+                    if order.status not in {
+                        Order.Status.PENDING,
+                        Order.Status.PAID,
+                    }:
+                        raise ValidationError(
+                            "Paid Stripe Session belongs to "
+                            "an order whose reservation was released."
+                        )
+
+                    finalize_payment(order.id)
+
+                    logger.info(
+                        "Order %s confirmed as paid.",
+                        order.id,
+                    )
+
+            elif event_type == "checkout.session.expired":
+                if session.get("status") != "expired":
+                    raise ValueError(
+                        "Unexpected Checkout Session expiration status."
+                    )
+
+                # Paid orders must never release their reserved inventory.
+                if order.status == Order.Status.PENDING:
+                    release_reservation(
+                        order.id,
+                        expired=True,
+                    )
+
+                    logger.info(
+                        "Order %s expired and inventory restored.",
+                        order.id,
+                    )
+
+            elif event_type == "checkout.session.async_payment_failed":
+                if session.get("payment_status") == "paid":
+                    raise ValueError(
+                        "Cannot release a paid Stripe Session."
+                    )
+
+                if order.status == Order.Status.PENDING:
+                    release_reservation(
+                        order.id,
+                        expired=False,
+                    )
+
+                    logger.info(
+                        "Order %s cancelled after payment failure.",
+                        order.id,
+                    )
+
+    except Order.DoesNotExist:
+        logger.error(
+            "Stripe event %s refers to an unknown order.",
+            event["id"],
+        )
+
         return JsonResponse(
             {"error": "Unknown order"},
             status=400,
+        )
+
+    except ValueError as exc:
+        logger.error(
+            "Rejected Stripe event %s: %s",
+            event["id"],
+            exc,
+        )
+
+        return JsonResponse(
+            {"error": "Invalid Stripe event data"},
+            status=400,
+        )
+
+    except Exception:
+        # Roll back payment changes and the event record on failure.
+        # Stripe can retry the webhook after the underlying issue is fixed.
+        logger.exception(
+            "Stripe webhook processing failed for event %s.",
+            event["id"],
+        )
+
+        return JsonResponse(
+            {"error": "Webhook processing failed"},
+            status=500,
         )
 
     return JsonResponse({"received": True})
