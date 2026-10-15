@@ -2,6 +2,7 @@ import logging
 import os
 import uuid
 
+from django.utils import timezone
 from django.db import transaction
 from django.http import JsonResponse
 from django.shortcuts import get_object_or_404
@@ -486,3 +487,174 @@ def stripe_webhook(request):
         )
 
     return JsonResponse({"received": True})
+
+@api_view(["POST"])
+def pay_order(request, order_id):
+    import stripe
+
+    stripe.api_key = os.getenv("STRIPE_SECRET_KEY", "")
+
+    if not stripe.api_key.startswith("sk_test_"):
+        raise ValidationError("Stripe test mode is not configured.")
+
+    with transaction.atomic():
+        order = get_object_or_404(
+            Order.objects.select_for_update(),
+            pk=order_id,
+            user=request.user,
+        )
+
+        if order.status != Order.Status.PENDING:
+            raise ValidationError(
+                "Only pending orders can be paid."
+            )
+
+        if not order.stripe_session_id:
+            raise ValidationError(
+                "This order has no Stripe Checkout session."
+            )
+
+        try:
+            # Reuse the existing session without reserving stock again.
+            session = stripe.checkout.Session.retrieve(
+                order.stripe_session_id
+            )
+        except stripe.StripeError:
+            raise ValidationError(
+                "Unable to check Stripe payment status. Please retry."
+            )
+
+        if session.client_reference_id != str(order.id):
+            raise ValidationError(
+                "Stripe Checkout does not match this order."
+            )
+
+        if session.payment_status == "paid":
+            if (
+                session.currency != "cad"
+                or session.amount_total != order.total_cents
+            ):
+                raise ValidationError(
+                    "Stripe payment amount does not match this order."
+                )
+
+            finalize_payment(order.id)
+
+            return Response({
+                "order": order_snapshot(order),
+                "message": "Payment has already been completed.",
+            })
+
+        if (
+            session.status != "open"
+            or session.payment_status != "unpaid"
+        ):
+            raise ValidationError(
+                "Payment is processing or this Checkout is no longer available."
+            )
+
+        if (
+            order.reservation_expires_at
+            and order.reservation_expires_at <= timezone.now()
+        ):
+            raise ValidationError(
+                "The inventory reservation has expired."
+            )
+
+        if not session.url:
+            raise ValidationError(
+                "Stripe Checkout URL is unavailable."
+            )
+
+        return Response({
+            "checkout_url": session.url,
+        })
+
+
+@api_view(["POST"])
+def cancel_order(request, order_id):
+    import stripe
+
+    stripe.api_key = os.getenv("STRIPE_SECRET_KEY", "")
+
+    if not stripe.api_key.startswith("sk_test_"):
+        raise ValidationError("Stripe test mode is not configured.")
+
+    with transaction.atomic():
+        order = get_object_or_404(
+            Order.objects.select_for_update(),
+            pk=order_id,
+            user=request.user,
+        )
+
+        if order.status != Order.Status.PENDING:
+            raise ValidationError(
+                "Only pending orders can be cancelled."
+            )
+
+        if order.stripe_session_id:
+            try:
+                session = stripe.checkout.Session.retrieve(
+                    order.stripe_session_id
+                )
+
+                if session.client_reference_id != str(order.id):
+                    raise ValidationError(
+                        "Stripe Checkout does not match this order."
+                    )
+
+                if session.payment_status == "paid":
+                    if (
+                        session.currency != "cad"
+                        or session.amount_total != order.total_cents
+                    ):
+                        raise ValidationError(
+                            "Stripe payment amount does not match this order."
+                        )
+
+                    finalize_payment(order.id)
+
+                    return Response({
+                        "order": order_snapshot(order),
+                        "message": (
+                            "Payment was already completed. "
+                            "The order cannot be cancelled."
+                        ),
+                    })
+
+                # Never cancel a completed session with a payment
+                # that may still be processing asynchronously.
+                if session.status == "complete":
+                    raise ValidationError(
+                        "Payment is processing. Cancellation is unavailable."
+                    )
+
+                if session.status == "open":
+                    if session.payment_status != "unpaid":
+                        raise ValidationError(
+                            "Payment status must be checked before cancellation."
+                        )
+
+                    # Stripe must close Checkout before stock is released.
+                    stripe.checkout.Session.expire(
+                        session.id
+                    )
+
+                elif session.status != "expired":
+                    raise ValidationError(
+                        "Checkout is not in a cancellable state."
+                    )
+
+            except stripe.StripeError:
+                raise ValidationError(
+                    "Unable to confirm cancellation with Stripe. "
+                    "Please retry."
+                )
+
+        # Restore inventory only after Stripe can no longer accept payment.
+        release_reservation(order.id)
+
+        return Response({
+            "order": order_snapshot(order),
+            "message": "Order cancelled.",
+        })
