@@ -7,37 +7,17 @@ from rest_framework.exceptions import ValidationError
 
 from backend.catalog.models import ProductVariant
 from .models import CartItem, Order, OrderItem
+from .serializers import CartItemSerializer
 
 
 def cart_snapshot(user):
+    # Join the two ForeignKey levels needed by the nested cart serializer.
     items = (
         CartItem.objects
         .filter(user=user)
-        .select_related(
-            "variant__product",
-            "variant__product__category",
-        )
+        .select_related("variant__product")
     )
-
-    return [
-        {
-            "id": item.id,
-            "quantity": item.quantity,
-            "variant": {
-                "id": item.variant_id,
-                "size": item.variant.size,
-                "color": item.variant.color,
-                "stock": item.variant.stock,
-            },
-            "product": {
-                "id": item.variant.product_id,
-                "name": item.variant.product.name,
-                "price_cents": item.variant.product.price_cents,
-            },
-        }
-        for item in items
-    ]
-
+    return CartItemSerializer(items, many=True).data
 
 def order_snapshot(order):
     return {
