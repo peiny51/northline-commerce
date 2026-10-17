@@ -31,9 +31,10 @@ def products(request):
     except ValueError:
         return Response({"error": "Invalid pagination."}, status=400)
 
-    # The catalog page does not need variants; avoid fetching them for every card.
+    # The catalog page does not need variants; avoid fetching them for every card. ( .prefetch_related("variants"))
     qs = Product.objects.filter(is_active=True).select_related("category")
     search = request.query_params.get("search", "").strip()
+    # Filter by search term in name, brand, or description (case-insensitive)
     if search:
         qs = qs.filter(Q(name__icontains=search) | Q(brand__icontains=search) | Q(description__icontains=search))
     if request.query_params.get("category"):
