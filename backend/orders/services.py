@@ -7,7 +7,7 @@ from rest_framework.exceptions import ValidationError
 
 from backend.catalog.models import ProductVariant
 from .models import CartItem, Order, OrderItem
-from .serializers import CartItemSerializer
+from .serializers import CartItemSerializer, OrderSerializer
 
 
 def cart_snapshot(user):
@@ -20,23 +20,7 @@ def cart_snapshot(user):
     return CartItemSerializer(items, many=True).data
 
 def order_snapshot(order):
-    return {
-        "id": str(order.id),
-        "status": order.status,
-        "total_cents": order.total_cents,
-        "created_at": order.created_at.isoformat(),
-        "shipping_address": order.shipping_address,
-        "items": [
-            {
-                "id": item.id,
-                "name": item.product_name,
-                "quantity": item.quantity,
-                "price_cents": item.unit_price_cents,
-            }
-            for item in order.items.all()
-        ],
-    }
-
+    return OrderSerializer(order).data
 
 @transaction.atomic
 def reserve_checkout(user, address, key):
