@@ -10,6 +10,7 @@ class CartItem(models.Model):
     quantity = models.PositiveIntegerField()
 
     class Meta:
+        # one variant per user in the cart, and CHECK (quantity >= 1)
         constraints = [
             models.UniqueConstraint(fields=["user", "variant"], name="unique_user_cart_variant"),
             models.CheckConstraint(condition=Q(quantity__gte=1), name="cart_quantity_positive"),

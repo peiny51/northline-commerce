@@ -4,6 +4,7 @@ from rest_framework.permissions import BasePermission
 def has_role(user, *roles):
     if not user or not user.is_authenticated:
         return False
+    # *roles: ("Store Manager", "Admin", "Support Agent")
     return user.is_superuser or user.groups.filter(name__in=roles).exists()
 
 

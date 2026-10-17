@@ -10,6 +10,7 @@ class Category(models.Model):
 
 
 class Product(models.Model):
+    # one category per product, but a category can have many products
     category = models.ForeignKey(Category, on_delete=models.PROTECT, related_name="products")
     name = models.CharField(max_length=200)
     brand = models.CharField(max_length=100)
