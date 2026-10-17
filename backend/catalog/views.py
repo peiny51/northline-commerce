@@ -7,7 +7,7 @@ from rest_framework.permissions import AllowAny
 from rest_framework.response import Response
 
 from .models import Category, Product
-from .serializers import CategorySerializer, ProductSerializer
+from .serializers import CategorySerializer, ProductDetailSerializer, ProductListSerializer
 
 
 def price_cents(value):
@@ -31,7 +31,8 @@ def products(request):
     except ValueError:
         return Response({"error": "Invalid pagination."}, status=400)
 
-    qs = Product.objects.filter(is_active=True).select_related("category").prefetch_related("variants")
+    # The catalog page does not need variants; avoid fetching them for every card.
+    qs = Product.objects.filter(is_active=True).select_related("category")
     search = request.query_params.get("search", "").strip()
     if search:
         qs = qs.filter(Q(name__icontains=search) | Q(brand__icontains=search) | Q(description__icontains=search))
@@ -59,7 +60,7 @@ def products(request):
     qs = qs.order_by(*ordering[sort])
     total = qs.count()
     offset = (page - 1) * limit
-    items = ProductSerializer(qs[offset:offset + limit], many=True).data
+    items = ProductListSerializer(qs[offset:offset + limit], many=True).data
     return Response({"items": items, "page": page, "limit": limit, "total": total, "has_more": offset + limit < total})
 
 
@@ -70,7 +71,7 @@ def product_detail(request, product_id):
         product = Product.objects.select_related("category").prefetch_related("variants").get(pk=product_id, is_active=True)
     except Product.DoesNotExist:
         return Response({"error": "Product not found."}, status=404)
-    return Response(ProductSerializer(product).data)
+    return Response(ProductDetailSerializer(product).data)
 
 
 @api_view(["GET"])
