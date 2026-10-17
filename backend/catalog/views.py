@@ -69,7 +69,8 @@ def products(request):
 @permission_classes([AllowAny])
 def product_detail(request, product_id):
     try:
-        product = Product.objects.select_related("category").prefetch_related("variants").get(pk=product_id, is_active=True)
+        product = Product.objects.select_related("category").get(pk=product_id,is_active=True)
+        #product = Product.objects.get(pk=product_id, is_active=True) # one more sql
     except Product.DoesNotExist:
         return Response({"error": "Product not found."}, status=404)
     return Response(ProductDetailSerializer(product).data)
