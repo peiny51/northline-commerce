@@ -14,6 +14,7 @@ from rest_framework.response import Response
 
 from backend.catalog.models import ProductVariant
 from .models import CartItem, Order, StripeEvent
+from .serializers import OrderSerializer
 from .services import (
     cart_snapshot,
     finalize_payment,
@@ -283,12 +284,7 @@ def orders(request):
         .order_by("-created_at")
     )
 
-    return Response(
-        [
-            order_snapshot(order)
-            for order in queryset[:100]
-        ]
-    )
+    return Response(OrderSerializer(queryset[:100], many=True).data)
 
 
 @csrf_exempt
