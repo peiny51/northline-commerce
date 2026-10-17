@@ -8,7 +8,7 @@
 - **Commerce:** ProductVariant stock, per-user cart, order snapshots in CAD cents, transaction/row-lock-based stock reservations, Stripe **test-mode** Checkout and verified webhooks, payment event deduplication, expiration reconciliation.
 - **Support:** AI chat, customer-owned conversations, support-agent claims, manager-controlled approval records, Channels notifications with short-lived signed WebSocket tickets, REST polling fallback.
 - **Agent:** LangGraph intent router with shopping / orders / policy / hybrid / escalation nodes; Django ORM product and authenticated order tools; Gemini for language generation. Policy RAG uses persistent Qdrant dense + BM25 sparse RRF and cross-encoder reranking.
-- **Admin:** `/admin/` with catalog inlines, orders as read-only business records, staff groups, conversations and approvals. No sales analytics or coupons yet.
+- **Admin:** `/admin/` with catalog inlines, orders as read-only business records, staff groups, conversations and approvals. 
 
 ### Explicit limitations
 
