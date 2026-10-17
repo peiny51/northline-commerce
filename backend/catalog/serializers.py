@@ -14,10 +14,16 @@ class VariantSerializer(serializers.ModelSerializer):
         fields = ("id", "size", "color", "stock")
 
 
-class ProductSerializer(serializers.ModelSerializer):
+class ProductListSerializer(serializers.ModelSerializer):
     category = serializers.CharField(source="category.name", read_only=True)
-    variants = VariantSerializer(many=True, read_only=True)
 
     class Meta:
         model = Product
-        fields = ("id", "name", "brand", "description", "price_cents", "category", "image_url", "variants")
+        fields = ("id", "name", "brand", "price_cents", "category", "image_url")
+
+
+class ProductDetailSerializer(ProductListSerializer):
+    variants = VariantSerializer(many=True, read_only=True)
+
+    class Meta(ProductListSerializer.Meta):
+        fields = ProductListSerializer.Meta.fields + ("description", "variants")
