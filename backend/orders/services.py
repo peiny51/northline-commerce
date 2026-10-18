@@ -24,7 +24,7 @@ def order_snapshot(order):
 
 @transaction.atomic
 def reserve_checkout(user, address, key):
-    # Serialize checkouts for the same customer to prevent duplicate reservations.
+    # lock and serialize checkouts for the same customer to prevent duplicate reservations.
     get_user_model().objects.select_for_update().get(pk=user.pk)
 
     # Repeated requests with the same key must reuse the existing order.
@@ -51,6 +51,7 @@ def reserve_checkout(user, address, key):
     })
 
     # Lock inventory in a consistent order to reduce deadlock risks.
+    # in case of concurrent checkouts, the first transaction to lock a variant will reserve it, and the second will fail if stock is insufficient.
     variants = {
         variant.id: variant
         for variant in (
@@ -63,7 +64,7 @@ def reserve_checkout(user, address, key):
     }
 
     total = 0
-
+    # check stock and calculate total price before creating the order to avoid partial reservations.
     for item in cart_items:
         variant = variants[item.variant_id]
 
@@ -77,6 +78,7 @@ def reserve_checkout(user, address, key):
 
         total += variant.product.price_cents * item.quantity
 
+    # Create the order and reserve stock in a single transaction to ensure consistency.
     order = Order.objects.create(
         user=user,
         total_cents=total,
@@ -110,6 +112,7 @@ def reserve_checkout(user, address, key):
 
 @transaction.atomic
 def finalize_payment(order_id):
+    # Lock the order to prevent concurrent modifications during payment finalization.
     order = (
         Order.objects
         .select_for_update()
