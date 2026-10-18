@@ -132,13 +132,9 @@ def finalize_payment(order_id):
 
     return order
 
-# Release reserved stock and optionally restore items to the cart if payment fails or expires.
+# Release reserved inventory without modifying the customer's current cart.
 @transaction.atomic
-def release_reservation(
-    order_id,
-    expired=False,
-    restore_cart=False,
-):
+def release_reservation(order_id, expired=False):
     order = (
         Order.objects
         .select_for_update()
@@ -171,30 +167,6 @@ def release_reservation(
         # Return reserved inventory to available stock.
         variant.stock += item.quantity
         variant.save(update_fields=["stock"])
-
-        if restore_cart:
-            # Restore items if Stripe Checkout could not be created.
-            cart_item = (
-                CartItem.objects
-                .select_for_update()
-                .filter(
-                    user=order.user,
-                    variant=variant,
-                )
-                .first()
-            )
-
-            if cart_item is None:
-                # Quantity must be positive to satisfy the database constraint.
-                CartItem.objects.create(
-                    user=order.user,
-                    variant=variant,
-                    quantity=item.quantity,
-                )
-            else:
-                # Preserve any items added after the checkout attempt.
-                cart_item.quantity += item.quantity
-                cart_item.save(update_fields=["quantity"])
 
     order.status = (
         Order.Status.EXPIRED
