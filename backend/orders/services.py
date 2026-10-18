@@ -123,6 +123,7 @@ def finalize_payment(order_id):
     if order.status == Order.Status.PAID:
         return order
 
+    # Only pending orders can be finalized; expired or cancelled orders cannot be paid.
     if order.status != Order.Status.PENDING:
         raise ValidationError("Order is no longer payable.")
 
@@ -131,7 +132,7 @@ def finalize_payment(order_id):
 
     return order
 
-
+# Release reserved stock and optionally restore items to the cart if payment fails or expires.
 @transaction.atomic
 def release_reservation(
     order_id,
