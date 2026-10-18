@@ -2,6 +2,8 @@ import logging
 import os
 import uuid
 
+import stripe
+
 from django.utils import timezone
 from django.db import transaction
 from django.http import JsonResponse
@@ -148,7 +150,7 @@ def cart_item(request, item_id):
     return Response(cart_snapshot(request.user))
 
 
-def stripe_checkout(order, request):
+def stripe_checkout(order):
     import stripe
 
     stripe.api_key = os.environ["STRIPE_SECRET_KEY"]
@@ -199,6 +201,59 @@ def stripe_checkout(order, request):
     return session.url
 
 
+
+@transaction.atomic
+def prepare_order_payment(order_id, user):
+    import stripe
+
+    stripe.api_key = os.environ["STRIPE_SECRET_KEY"]
+
+    # Lock the order so checkout, payment confirmation, and cancellation
+    # cannot change its status concurrently.
+    order = Order.objects.select_for_update().get(pk=order_id, user=user)
+
+    if order.status == Order.Status.PAID:
+        return order, None
+
+    if order.status != Order.Status.PENDING:
+        raise ValidationError("Order is no longer payable.")
+
+    if order.stripe_session_id:
+        session = stripe.checkout.Session.retrieve(order.stripe_session_id)
+
+        if session.client_reference_id != str(order.id):
+            raise ValidationError("Stripe Checkout does not match this order.")
+
+        if session.payment_status == "paid":
+            if session.currency != "cad" or session.amount_total != order.total_cents:
+                raise ValidationError("Stripe payment amount does not match this order.")
+
+            # A payment may succeed before its webhook updates our order.
+            finalize_payment(order.id)
+            order.status = Order.Status.PAID
+            return order, None
+
+        if session.status != "open" or session.payment_status != "unpaid":
+            raise ValidationError(
+                "Payment is processing or this Checkout is no longer available."
+            )
+
+        if order.reservation_expires_at and order.reservation_expires_at <= timezone.now():
+            raise ValidationError("The inventory reservation has expired.")
+
+        if not session.url:
+            raise ValidationError("Stripe Checkout URL is unavailable.")
+
+        return order, session.url
+
+    # Stripe setup may have failed previously. Reuse the order and its
+    # existing inventory reservation; never reserve inventory twice.
+    if order.reservation_expires_at and order.reservation_expires_at <= timezone.now():
+        raise ValidationError("The inventory reservation has expired.")
+
+    return order, stripe_checkout(order)
+
+
 @api_view(["POST"])
 def checkout(request):
     address = str(
@@ -239,33 +294,28 @@ def checkout(request):
         idempotency_key,
     )
 
-    if not created and order.status != Order.Status.PENDING:
-        return Response(
-            {"order": order_snapshot(order)}
-        )
+    if order.status != Order.Status.PENDING:
+        return Response({"order": order_snapshot(order)})
 
     try:
-        checkout_url = stripe_checkout(
-            order,
-            request,
-        )
-    except Exception:
-        # Keep the pending order and reserved stock for payment retry.
-        logger.exception(
-            "Unable to create Stripe Checkout for order %s.",
-            order.id,
-        )
+        order, checkout_url = prepare_order_payment(order.id, request.user)
+    except stripe.StripeError:
+        # Keep the pending order and its reserved stock for a later retry.
+        logger.exception("Unable to prepare Stripe Checkout for order %s.", order.id)
         raise ValidationError(
             "Unable to start Stripe Checkout. Retry payment from your orders."
         )
 
-    return Response(
-        {
+    if order.status == Order.Status.PAID:
+        return Response({
             "order": order_snapshot(order),
-            "checkout_url": checkout_url,
-        },
-        status=201,
-    )
+            "message": "Payment has already been completed.",
+        })
+
+    return Response({
+        "order": order_snapshot(order),
+        "checkout_url": checkout_url,
+    }, status=201 if created else 200)
 
 
 @api_view(["GET"])
@@ -482,100 +532,25 @@ def pay_order(request, order_id):
     import stripe
 
     stripe.api_key = os.getenv("STRIPE_SECRET_KEY", "")
-
     if not stripe.api_key.startswith("sk_test_"):
         raise ValidationError("Stripe test mode is not configured.")
 
-    with transaction.atomic():
-        order = get_object_or_404(
-            Order.objects.select_for_update(),
-            pk=order_id,
-            user=request.user,
-        )
+    # Check ownership before sharing the payment preparation logic.
+    get_object_or_404(Order, pk=order_id, user=request.user)
 
-        if order.status != Order.Status.PENDING:
-            raise ValidationError(
-                "Only pending orders can be paid."
-            )
+    try:
+        order, checkout_url = prepare_order_payment(order_id, request.user)
+    except stripe.StripeError:
+        logger.exception("Unable to prepare Stripe Checkout for order %s.", order_id)
+        raise ValidationError("Unable to contact Stripe. Please retry.")
 
-        if not order.stripe_session_id:
-            # Stripe setup may have failed after the order reserved stock.
-            if (
-                order.reservation_expires_at
-                and order.reservation_expires_at <= timezone.now()
-            ):
-                raise ValidationError(
-                    "The inventory reservation has expired."
-                )
-
-            try:
-                checkout_url = stripe_checkout(order, request)
-            except stripe.StripeError:
-                logger.exception(
-                    "Unable to retry Stripe Checkout for order %s.",
-                    order.id,
-                )
-                raise ValidationError(
-                    "Unable to start Stripe Checkout. Please retry."
-                )
-
-            return Response({"checkout_url": checkout_url})
-
-        try:
-            # Reuse the existing session without reserving stock again.
-            session = stripe.checkout.Session.retrieve(
-                order.stripe_session_id
-            )
-        except stripe.StripeError:
-            raise ValidationError(
-                "Unable to check Stripe payment status. Please retry."
-            )
-
-        if session.client_reference_id != str(order.id):
-            raise ValidationError(
-                "Stripe Checkout does not match this order."
-            )
-
-        if session.payment_status == "paid":
-            if (
-                session.currency != "cad"
-                or session.amount_total != order.total_cents
-            ):
-                raise ValidationError(
-                    "Stripe payment amount does not match this order."
-                )
-
-            finalize_payment(order.id)
-
-            return Response({
-                "order": order_snapshot(order),
-                "message": "Payment has already been completed.",
-            })
-
-        if (
-            session.status != "open"
-            or session.payment_status != "unpaid"
-        ):
-            raise ValidationError(
-                "Payment is processing or this Checkout is no longer available."
-            )
-
-        if (
-            order.reservation_expires_at
-            and order.reservation_expires_at <= timezone.now()
-        ):
-            raise ValidationError(
-                "The inventory reservation has expired."
-            )
-
-        if not session.url:
-            raise ValidationError(
-                "Stripe Checkout URL is unavailable."
-            )
-
+    if order.status == Order.Status.PAID:
         return Response({
-            "checkout_url": session.url,
+            "order": order_snapshot(order),
+            "message": "Payment has already been completed.",
         })
+
+    return Response({"checkout_url": checkout_url})
 
 
 @api_view(["POST"])
