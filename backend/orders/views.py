@@ -252,10 +252,7 @@ def checkout(request):
     except Exception:
         # Only newly created orders can release this reservation.
         if created:
-            release_reservation(
-                order.id,
-                restore_cart=True,
-            )
+            release_reservation(order.id)
 
         logger.exception(
             "Unable to create Stripe Checkout for order %s.",
