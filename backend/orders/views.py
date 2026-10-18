@@ -250,17 +250,13 @@ def checkout(request):
             request,
         )
     except Exception:
-        # Only newly created orders can release this reservation.
-        if created:
-            release_reservation(order.id)
-
+        # Keep the pending order and reserved stock for payment retry.
         logger.exception(
             "Unable to create Stripe Checkout for order %s.",
             order.id,
         )
-
         raise ValidationError(
-            "Unable to start Stripe Checkout."
+            "Unable to start Stripe Checkout. Retry payment from your orders."
         )
 
     return Response(
@@ -503,9 +499,27 @@ def pay_order(request, order_id):
             )
 
         if not order.stripe_session_id:
-            raise ValidationError(
-                "This order has no Stripe Checkout session."
-            )
+            # Stripe setup may have failed after the order reserved stock.
+            if (
+                order.reservation_expires_at
+                and order.reservation_expires_at <= timezone.now()
+            ):
+                raise ValidationError(
+                    "The inventory reservation has expired."
+                )
+
+            try:
+                checkout_url = stripe_checkout(order, request)
+            except stripe.StripeError:
+                logger.exception(
+                    "Unable to retry Stripe Checkout for order %s.",
+                    order.id,
+                )
+                raise ValidationError(
+                    "Unable to start Stripe Checkout. Please retry."
+                )
+
+            return Response({"checkout_url": checkout_url})
 
         try:
             # Reuse the existing session without reserving stock again.
