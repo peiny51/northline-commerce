@@ -28,8 +28,7 @@ from .services import (
 
 logger = logging.getLogger(__name__)
 
-
-@api_view(["GET", "POST"])
+# get cart or add new item to cart
 def cart(request):
     if request.method == "GET":
         return Response(cart_snapshot(request.user))
@@ -55,6 +54,7 @@ def cart(request):
             product__is_active=True,
         )
 
+        # check if there is already a same variant here
         cart_item = (
             CartItem.objects
             .select_for_update()
@@ -100,8 +100,10 @@ def cart(request):
     )
 
 
+# update quantity or delete item from cart
 @api_view(["DELETE", "PATCH"])
 def cart_item(request, item_id):
+    # patch: set quantity directly, post: add quantity to existing, delete: remove item from cart
     if request.method == "PATCH":
         try:
             quantity = int(request.data["quantity"])
