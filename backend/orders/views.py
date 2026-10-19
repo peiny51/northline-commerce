@@ -220,6 +220,7 @@ def prepare_order_payment(order_id, user):
     if order.status != Order.Status.PENDING:
         raise ValidationError("Order is no longer payable.")
 
+    # If the order has a Stripe session, check its status and return the existing checkout URL if still valid.
     if order.stripe_session_id:
         session = stripe.checkout.Session.retrieve(order.stripe_session_id)
 
@@ -256,6 +257,7 @@ def prepare_order_payment(order_id, user):
     return order, stripe_checkout(order)
 
 
+# integrate with Stripe Checkout to process payment for a pending order
 @api_view(["POST"])
 def checkout(request):
     address = str(
@@ -290,6 +292,7 @@ def checkout(request):
             "before checkout."
         )
 
+    # reserve stock and create a pending order, or return the existing one if already reserved
     order, created = reserve_checkout(
         request.user,
         address,
@@ -314,6 +317,7 @@ def checkout(request):
             "message": "Payment has already been completed.",
         })
 
+    # if still needs to pay, return the checkout url to frontend to redirect user to Stripe Checkout
     return Response({
         "order": order_snapshot(order),
         "checkout_url": checkout_url,
