@@ -33,7 +33,7 @@
   },
   {
     "document_id": "STORE-SUPPORT-001",
-    "title": "Customer Support and Human Approval (Demo Store)",
+    "title": "Customer Support and Jira Escalation (Demo Store)",
     "category": "support",
     "source": "northline_demo_policy",
     "source_url": "",
