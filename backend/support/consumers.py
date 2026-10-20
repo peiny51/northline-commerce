@@ -28,6 +28,7 @@ class SupportConsumer(AsyncJsonWebsocketConsumer):
         await self.channel_layer.group_add(self.room, self.channel_name)
         await self.accept()
 
+    # authenricate user
     @database_sync_to_async
     def user_from_ticket(self, ticket):
         try:
