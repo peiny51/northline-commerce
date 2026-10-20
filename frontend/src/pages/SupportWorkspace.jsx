@@ -8,7 +8,6 @@ import api from '../api';
 export default function SupportWorkspace() {
   const [queue, setQueue] = useState([]);
   const [assigned, setAssigned] = useState([]);
-  const [approvals, setApprovals] = useState([]);
   const [conversation, setConversation] = useState(null);
   const [message, setMessage] = useState('');
   const [error, setError] = useState('');
@@ -22,12 +21,6 @@ export default function SupportWorkspace() {
       setQueue(queueResponse.data);
       setAssigned(assignedResponse.data.filter(item => item.status === 'active'));
 
-      try {
-        const approvalResponse = await api.get('/support/approvals');
-        setApprovals(approvalResponse.data.filter(item => item.status === 'pending'));
-      } catch {
-        setApprovals([]);
-      }
 
       if (conversation?.id) {
         const { data } = await api.get(`/support/conversations/${conversation.id}`);
@@ -69,20 +62,11 @@ export default function SupportWorkspace() {
     }
   }
 
-  async function review(id, approved) {
-    try {
-      await api.post(`/support/approvals/${id}/decision`, { approved });
-      await refresh();
-    } catch (requestError) {
-      setError(requestError.response?.data?.detail || 'Manager approval required.');
-    }
-  }
-
   return (
     <Container sx={{ py: 5 }}>
       <Typography variant="h4" fontWeight={800}>Support workspace</Typography>
       <Typography color="text.secondary">
-        Assigned support agents handle chats. Managers review approvals.
+        Support agents manage assigned customer conversations.
       </Typography>
       {error && <Alert severity="warning" sx={{ mt: 2 }}>{error}</Alert>}
 
@@ -107,14 +91,6 @@ export default function SupportWorkspace() {
         </Grid>
 
         <Grid item xs={12} md={8}>
-          {approvals.map(item => (
-            <Alert key={item.id} severity="warning" sx={{ mb: 2 }}>
-              <Typography fontWeight={700}>Approval #{item.id}</Typography>
-              <Typography>{item.reason}</Typography>
-              <Button onClick={() => review(item.id, true)}>Approve review</Button>
-              <Button color="error" onClick={() => review(item.id, false)}>Reject</Button>
-            </Alert>
-          ))}
 
           {conversation ? (
             <Paper sx={{ p: 3 }}>
