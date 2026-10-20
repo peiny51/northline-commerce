@@ -1,6 +1,7 @@
 """Run with: python manage.py test tests --verbosity 2 (requires PostgreSQL)."""
 from concurrent.futures import ThreadPoolExecutor
 from threading import Barrier
+from unittest.mock import patch
 
 from django.contrib.auth import get_user_model
 from django.contrib.auth.models import Group
@@ -56,6 +57,15 @@ class AuthorizationTests(TestCase):
         self.assertEqual(
             client.get(f"/api/support/conversations/{conversation.pk}").status_code,
             403,
+        )
+
+    def test_obsolete_approval_routes_are_removed(self):
+        client = APIClient()
+        client.force_authenticate(user=self.agent)
+        self.assertEqual(client.get("/api/support/approvals").status_code, 404)
+        self.assertEqual(
+            client.post("/api/support/approvals/1/decision", {"approved": True}).status_code,
+            404,
         )
 
     def test_support_agent_can_view_queue(self):
@@ -116,3 +126,27 @@ class InventoryConcurrencyTests(TransactionTestCase):
         self.assertEqual(results.count(True), 1)
         self.assertEqual(variant.stock, 0)
         self.assertEqual(Order.objects.count(), 1)
+
+
+class JiraEscalationTests(TestCase):
+    def test_escalation_creates_ticket_without_approval(self):
+        from backend.ai.workflow import escalation_node
+        from backend.support.models import SupportConversation
+
+        user = get_user_model().objects.create_user(username="ticket_customer")
+        conversation = SupportConversation.objects.create(user=user)
+
+        with patch("backend.ai.workflow.get_my_orders", return_value=[]), \
+             patch("backend.ai.workflow.policy_context", return_value=""), \
+             patch("backend.ai.workflow.llm") as mocked_llm, \
+             patch("backend.ai.workflow.create_jira_escalation", return_value="NC-123") as create_ticket:
+            mocked_llm.return_value.invoke.return_value.content = "Staff should review this request."
+            result = escalation_node({
+                "question": "Please review my refund request.",
+                "user_id": user.id,
+                "conversation_id": conversation.id,
+            })
+
+        self.assertEqual(result["data"]["jira_issue_key"], "NC-123")
+        create_ticket.assert_called_once()
+        self.assertIn("No refund", result["answer"])
