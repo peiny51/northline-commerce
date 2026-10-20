@@ -1,14 +1,12 @@
 from django.core import signing
 from django.db import transaction
-from django.db.models import Q
 from django.shortcuts import get_object_or_404
-from django.utils import timezone
 from rest_framework.decorators import api_view, permission_classes
 from rest_framework.exceptions import PermissionDenied, ValidationError
 from rest_framework.response import Response
 
-from backend.accounts.permissions import IsStoreManager, IsSupportStaff, has_role
-from .models import ApprovalRequest, SupportConversation, SupportMessage
+from backend.accounts.permissions import IsSupportStaff, has_role
+from .models import SupportConversation, SupportMessage
 from .services import can_answer, can_view, publish_update, snapshot
 
 # check if the user is authorized to view this conversation
@@ -128,31 +126,6 @@ def close_conversation(request, conversation_id):
 def support_queue(request):
     qs = SupportConversation.objects.filter(status=SupportConversation.Status.WAITING).order_by("created_at")
     return Response([snapshot(item) for item in qs[:50]])
-
-
-@api_view(["GET"])
-@permission_classes([IsStoreManager])
-def approvals(request):
-    qs = ApprovalRequest.objects.order_by("-created_at")
-    return Response([{"id": a.id, "action": a.action, "reason": a.reason, "status": a.status, "conversation_id": a.conversation_id} for a in qs[:100]])
-
-
-@api_view(["POST"])
-@permission_classes([IsStoreManager])
-def decide_approval(request, approval_id):
-    decision = request.data.get("approved")
-    if not isinstance(decision, bool):
-        raise ValidationError("approved must be true or false.")
-    with transaction.atomic():
-        approval = get_object_or_404(ApprovalRequest.objects.select_for_update(), pk=approval_id)
-        if approval.status != ApprovalRequest.Status.PENDING:
-            raise ValidationError("This request has already been reviewed.")
-        approval.status = ApprovalRequest.Status.APPROVED if decision else ApprovalRequest.Status.REJECTED
-        approval.reviewed_by = request.user
-        approval.reviewed_at = timezone.now()
-        approval.save(update_fields=["status", "reviewed_by", "reviewed_at"])
-    # Approval records a decision; it does not automatically issue a refund.
-    return Response({"id": approval.id, "status": approval.status})
 
 
 @api_view(["POST"])
