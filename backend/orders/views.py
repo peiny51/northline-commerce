@@ -29,6 +29,7 @@ from .services import (
 logger = logging.getLogger(__name__)
 
 # get cart or add new item to cart
+@api_view(["GET", "POST"])
 def cart(request):
     if request.method == "GET":
         return Response(cart_snapshot(request.user))
