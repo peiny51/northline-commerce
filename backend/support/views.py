@@ -40,6 +40,7 @@ def conversation_detail(request, conversation_id):
 
 
 # check the position of a conversation in the support queue
+@api_view(["GET"])
 def queue_position(request, conversation_id):
     conversation = allowed_conversation(request, conversation_id)
     ahead = SupportConversation.objects.filter(
