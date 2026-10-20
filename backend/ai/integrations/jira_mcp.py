@@ -1,7 +1,7 @@
-"""Optional Jira escalation through Atlassian's MCP endpoint after agent approval.
+"""Create a staff-follow-up Jira ticket through a trusted Atlassian MCP endpoint.
 
-Credentials and OAuth setup are intentionally external to the customer web app.
-A missing MCP connection is reported as a failure, not a fake ticket.
+Creating a ticket requires no manager approval; any refund or cancellation is left to staff.
+Credentials and OAuth are managed outside the customer-facing Django app.
 """
 import asyncio
 import json
@@ -9,34 +9,37 @@ import os
 
 
 def configured():
-    return all(os.getenv(x) for x in ('ATLASSIAN_MCP_URL', 'ATLASSIAN_CLOUD_ID', 'JIRA_PROJECT_KEY'))
+    return all(os.getenv(x) for x in ("ATLASSIAN_MCP_URL", "ATLASSIAN_CLOUD_ID", "JIRA_PROJECT_KEY"))
 
 
 async def _create_issue(summary, description):
     from mcp import ClientSession
     from mcp.client.streamable_http import streamablehttp_client
-    # An MCP service reachable via a trusted, pre-authenticated endpoint.
-    # For OAuth-enabled Atlassian MCP, deploy a token-handling gateway here.
-    async with streamablehttp_client(os.environ['ATLASSIAN_MCP_URL']) as (reader, writer, _):
+
+    # Requires an authenticated MCP endpoint or a separately deployed OAuth gateway.
+    async with streamablehttp_client(os.environ["ATLASSIAN_MCP_URL"]) as (reader, writer, _):
         async with ClientSession(reader, writer) as session:
             await session.initialize()
-            result = await session.call_tool('createJiraIssue', {
-                'cloudId': os.environ['ATLASSIAN_CLOUD_ID'],
-                'projectKey': os.environ['JIRA_PROJECT_KEY'],
-                'issueType': 'Task', 'summary': summary[:255], 'description': description,
-                'labels': ['customer-escalation', 'human-approved']})
+            result = await session.call_tool("createJiraIssue", {
+                "cloudId": os.environ["ATLASSIAN_CLOUD_ID"],
+                "projectKey": os.environ["JIRA_PROJECT_KEY"],
+                "issueType": "Task",
+                "summary": summary[:255],
+                "description": description,
+                "labels": ["customer-escalation", "ai-triaged"],
+            })
             if result.isError:
-                raise RuntimeError('Jira MCP tool reported an error')
+                raise RuntimeError("Jira MCP tool reported an error")
             for item in result.content:
-                if getattr(item, 'type', '') == 'text':
+                if getattr(item, "type", "") == "text":
                     payload = json.loads(item.text)
-                    data = payload.get('data', payload)
-                    if data.get('key'):
-                        return data['key']
-    raise RuntimeError('No issue key was returned from Jira MCP')
+                    data = payload.get("data", payload)
+                    if data.get("key"):
+                        return data["key"]
+    raise RuntimeError("No issue key was returned from Jira MCP")
 
 
 def create_jira_escalation(summary, description):
     if not configured():
-        raise RuntimeError('Jira MCP credentials not configured')
+        raise RuntimeError("Jira MCP credentials not configured")
     return asyncio.run(_create_issue(summary, description))
