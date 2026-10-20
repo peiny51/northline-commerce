@@ -80,11 +80,16 @@ export default function SupportChat({ onClose, onCartChanged }) {
     try {
       const { data } = await api.get(`/support/conversations/${conversation.id}`);
       setConversation(data);
-
-      if (data.status === 'waiting') {
+      if (data.status === 'closed') {
+        setQueueAhead(null);
+        setText('');
+      } else if (data.status === 'waiting') {
         const response = await api.get(`/support/conversations/${data.id}/position`);
         setQueueAhead(response.data.ahead);
+      } else {
+        setQueueAhead(null);
       }
+      setError('');
     } catch (requestError) {
       setError(requestError.response?.data?.detail || 'Unable to refresh chat.');
     }
@@ -149,6 +154,11 @@ export default function SupportChat({ onClose, onCartChanged }) {
     try {
       const { data } = await api.post(`/support/conversations/${conversation.id}/${action}`);
       setConversation(data);
+      if (data.status === 'closed') {
+        setText('');
+        setQueueAhead(null);
+      }
+      setError('');
     } catch (requestError) {
       setError(requestError.response?.data?.detail || 'Unable to update conversation.');
     }
@@ -172,6 +182,11 @@ export default function SupportChat({ onClose, onCartChanged }) {
           </Stack>
         ) : (
           <>
+            {conversation.status === 'closed' && (
+              <Alert severity="info" sx={{ mb: 2 }}>
+                This conversation has ended. Start a new conversation to get further support.
+              </Alert>
+            )}
             {conversation.status === 'waiting' && (
               <Alert severity="info" sx={{ mb: 2 }}>
                 Waiting for an agent. {queueAhead === null ? '' : `${queueAhead} ahead of you.`}
