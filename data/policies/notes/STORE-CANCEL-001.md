@@ -4,7 +4,7 @@
 
 ## Requesting cancellation
 
-A customer may ask to cancel an order by providing its order number. The assistant may explain how to contact support and submit an approval request. The AI cannot directly cancel an order.
+A customer may ask to cancel an order by providing its order number. The assistant may explain the available process or create a Jira support ticket through MCP for staff review. The AI cannot directly cancel an order.
 
 ## Pending payment vs paid order
 
@@ -16,4 +16,4 @@ Partial cancellations are not automatically supported in this demo. Staff should
 
 ## Refund handling
 
-Approving a cancellation request does not automatically refund payment. A refund is a separate, authorized payment operation not implemented by this demo assistant.
+Creating a Jira ticket for cancellation review does not refund payment. A refund is a separate, authorized payment operation not implemented by this demo assistant.
