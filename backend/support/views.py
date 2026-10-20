@@ -11,7 +11,7 @@ from backend.accounts.permissions import IsStoreManager, IsSupportStaff, has_rol
 from .models import ApprovalRequest, SupportConversation, SupportMessage
 from .services import can_answer, can_view, publish_update, snapshot
 
-
+# check if the user is authorized to view this conversation
 def allowed_conversation(request, conversation_id):
     conversation = get_object_or_404(SupportConversation, pk=conversation_id)
     if not can_view(request.user, conversation):
@@ -19,6 +19,7 @@ def allowed_conversation(request, conversation_id):
     return conversation
 
 
+# create conversation and get list of conversations for the user, agent, or store manager/admin
 @api_view(["GET", "POST"])
 def conversations(request):
     if request.method == "POST":
@@ -34,12 +35,13 @@ def conversations(request):
     return Response([snapshot(item) for item in qs.order_by("-created_at")[:50]])
 
 
+# check specific conversation details, including messages, for the user, agent, or store manager/admin
 @api_view(["GET"])
 def conversation_detail(request, conversation_id):
     return Response(snapshot(allowed_conversation(request, conversation_id)))
 
 
-@api_view(["GET"])
+# check the position of a conversation in the support queue
 def queue_position(request, conversation_id):
     conversation = allowed_conversation(request, conversation_id)
     ahead = SupportConversation.objects.filter(
@@ -86,6 +88,7 @@ def request_human(request, conversation_id):
         raise PermissionDenied("Only the customer can request an agent.")
     if conversation.status == SupportConversation.Status.CLOSED:
         raise ValidationError("Cannot reopen a closed conversation.")
+    # human already assigned, no need to change status
     if conversation.status == SupportConversation.Status.ACTIVE:
         return Response(snapshot(conversation))
     conversation.status = SupportConversation.Status.WAITING
@@ -94,6 +97,7 @@ def request_human(request, conversation_id):
     return Response(snapshot(conversation))
 
 
+# human agent can claim a conversation from the queue, which assigns them to the conversation and changes its status to active
 @api_view(["POST"])
 @permission_classes([IsSupportStaff])
 def claim_conversation(request, conversation_id):
@@ -101,7 +105,7 @@ def claim_conversation(request, conversation_id):
         conversation = get_object_or_404(SupportConversation.objects.select_for_update(), pk=conversation_id)
         if conversation.status != SupportConversation.Status.WAITING or conversation.agent_id:
             raise ValidationError("This conversation has already been claimed.")
-        conversation.agent = request.user
+        conversation.agent = request.user # assign the agent to the conversation
         conversation.status = SupportConversation.Status.ACTIVE
         conversation.save(update_fields=["agent", "status", "updated_at"])
     publish_update(conversation.id)

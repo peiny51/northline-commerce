@@ -324,6 +324,7 @@ def checkout(request):
     }, status=201 if created else 200)
 
 
+# check order status and return the order details
 @api_view(["GET"])
 def orders(request):
     queryset = (
@@ -335,7 +336,7 @@ def orders(request):
 
     return Response(OrderSerializer(queryset[:100], many=True).data)
 
-
+# stripe server sends webhook to notify us about the payment status, we need to handle it and update the order status accordingly
 @csrf_exempt
 def stripe_webhook(request):
     import stripe
