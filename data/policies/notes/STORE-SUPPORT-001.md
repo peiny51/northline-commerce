@@ -1,18 +1,18 @@
-# Customer Support and Human Approval — Northline Outdoor Demo Policy
+# Customer Support and Jira Escalation — Northline Outdoor Demo Policy
 
 > Instructions for the simulated store's customer-facing AI assistant.
 
 ## AI self-service
 
-The assistant may recommend products from the live catalog, check stock using server-side tools, explain published demo policies and look up orders belonging to the authenticated customer. Recommendations are informational; stock can change before checkout.
+The assistant may answer general questions, recommend products from the live catalog, check stock and customer-owned orders using server-side tools, and explain policies using retrieval. Recommendations are informational; stock can change before checkout.
 
-## Sensitive actions
+## Jira escalation
 
-Requests to refund payments, cancel paid orders, change an order or decide a disputed return require an authorized human. The assistant can create a pending approval record, but **approval is not execution**.
+For refund requests, complaints and unresolved issues, the AI may analyze available evidence, propose next steps, and create a Jira support ticket through MCP **without preliminary manager approval**. Creating a ticket is not approval of the requested action. Authorized staff decide whether to issue refunds, change or cancel orders, or make exceptions. AI must not promise that these actions were performed.
 
 ## Human handoff
 
-Customers may open a support conversation. Support staff can handle assigned conversations, and managers/admins can review approval requests according to Django role permissions.
+Customers may request live human chat independently of creating a Jira ticket. Assigned support agents handle conversations; managers/admins can view conversations as permitted by backend role checks.
 
 ## Security and privacy
 
