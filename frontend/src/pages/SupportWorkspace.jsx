@@ -21,7 +21,6 @@ export default function SupportWorkspace() {
       setQueue(queueResponse.data);
       setAssigned(assignedResponse.data.filter(item => item.status === 'active'));
 
-
       if (conversation?.id) {
         const { data } = await api.get(`/support/conversations/${conversation.id}`);
         setConversation(data);
@@ -91,7 +90,6 @@ export default function SupportWorkspace() {
         </Grid>
 
         <Grid item xs={12} md={8}>
-
           {conversation ? (
             <Paper sx={{ p: 3 }}>
               <Typography variant="h6">
