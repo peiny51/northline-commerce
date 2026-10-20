@@ -6,13 +6,13 @@
 - **Catalog:** Django ORM, Django Admin, public search/filter/sort/load-more endpoints.
 - **Authentication:** Auth0 RS256 JWT verification for React customers; Django user mapping; Django Groups + model permissions for store staff. Demo identity headers are accepted **only** with both `DEBUG=true` and `DEMO_MODE=true`.
 - **Commerce:** ProductVariant stock, per-user cart, order snapshots in CAD cents, transaction/row-lock-based stock reservations, Stripe **test-mode** Checkout and verified webhooks, payment event deduplication, expiration reconciliation.
-- **Support:** AI chat, customer-owned conversations, support-agent claims, manager-controlled approval records, Channels notifications with short-lived signed WebSocket tickets, REST polling fallback.
-- **Agent:** LangGraph intent router with shopping / orders / policy / hybrid / escalation nodes; Django ORM product and authenticated order tools; Gemini for language generation. Policy RAG uses persistent Qdrant dense + BM25 sparse RRF and cross-encoder reranking.
-- **Admin:** `/admin/` with catalog inlines, orders as read-only business records, staff groups, conversations and approvals. 
+- **Support:** AI chat, customer-owned conversations, support-agent claims, automatic Jira MCP ticket escalation, Channels notifications with short-lived signed WebSocket tickets, REST polling fallback.
+- **Agent:** LangGraph intent router with general / policy (RAG) / database / hybrid / recommendation / escalation nodes; Django ORM product and authenticated order tools; Gemini for language generation. Policy RAG uses persistent Qdrant dense + BM25 sparse RRF and cross-encoder reranking.
+- **Admin:** `/admin/` with catalog inlines, orders as read-only business records, staff groups, conversations. 
 
 ### Explicit limitations
 
-This is an implementation **requiring local integration testing**, not a production-certified payment system. The example pricing does not compute Canadian taxes, shipping, or refunds. No refund is issued automatically on approval. Jira MCP client code is supplied as an optional integration but **is not invoked by the approval endpoint**; deploy an OAuth-authenticated MCP connection and an explicit staff workflow before enabling it. Neither Stripe nor Auth0 nor Gemini can function without your own credentials. A background scheduler is not included; schedule `expire_reservations` yourself. Django migration files are not pre-generated; run `makemigrations` to create them for the initial schema.
+This is an implementation **requiring local integration testing**, not a production-certified payment system. The example pricing does not compute Canadian taxes, shipping, or refunds. The AI can automatically create a Jira support ticket through MCP when the configured, authenticated Atlassian connection is available. A ticket does not approve or execute refunds or cancellations; authorized staff decide and perform such actions. Configure `ATLASSIAN_MCP_URL`, `ATLASSIAN_CLOUD_ID`, and `JIRA_PROJECT_KEY` with a trusted authenticated MCP endpoint or OAuth gateway. Ticket delivery requires integration testing. Neither Stripe nor Auth0 nor Gemini can function without your own credentials. A background scheduler is not included; schedule `expire_reservations` yourself. Django migrations are committed; run `migrate` to apply them.
 
 ## First start (macOS)
 
@@ -26,7 +26,6 @@ python3 -m venv .venv
 source .venv/bin/activate
 python -m pip install --upgrade pip
 pip install -r requirements.txt
-python manage.py makemigrations accounts catalog orders support
 python manage.py migrate
 python manage.py seed_roles
 python manage.py seed_catalog
@@ -71,7 +70,7 @@ For abandoned orders, schedule a periodic task (e.g. every 1–5 minutes):
 python manage.py expire_reservations
 ```
 
-This command checks Stripe's actual session state before releasing reserved stock. Initial database migrations are development-oriented; commit generated migration files to git before collaborating or deploying.
+This command checks Stripe's actual session state before releasing reserved stock. The `support.0002_remove_approvalrequest` migration drops legacy approval records; back up any existing data before running it.
 
 ### RBAC and Django Admin
 
@@ -86,7 +85,7 @@ In local `DEBUG=true, DEMO_MODE=true`, the role seeding command also creates `de
 - Stripe events are signature-checked and deduplicated by event ID; pending-to-paid and pending-to-expired transitions are transactional.
 - Payment reconciliation depends on Stripe state. For real commerce, implement stronger dispute handling, operational alerts and tax calculations.
 - Signed WebSocket tickets expire after 60 seconds and are checked again for conversation access. Only room notifications flow over WS; message content travels via authenticated REST.
-- Support approvals create approval records. Approval alone never automatically refunds or cancels an order.
+- AI Jira escalation creates staff follow-up tickets, not approval records; no refund or cancellation is executed automatically.
 
 ## Tests
 
@@ -106,7 +105,7 @@ backend/
   accounts/      # custom Django user, Auth0 JWT, RBAC
   catalog/       # products, variants, admin, search/filter
   orders/        # cart, reservations, Stripe integration, reconciler
-  support/       # human chat, approvals, Channels
+  support/       # human chat, Jira escalation, Channels
   ai/graph/      # reserved for graph extensions
   ai/rag/        # persistent Qdrant policy retrieval + reranking
   ai/workflow.py # LangGraph route and nodes
