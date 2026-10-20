@@ -11,6 +11,4 @@ urlpatterns = [
     path("support/conversations/<int:conversation_id>/claim", views.claim_conversation),
     path("support/conversations/<int:conversation_id>/close", views.close_conversation),
     path("support/queue", views.support_queue),
-    path("support/approvals", views.approvals),
-    path("support/approvals/<int:approval_id>/decision", views.decide_approval),
 ]
