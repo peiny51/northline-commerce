@@ -11,6 +11,7 @@ export default function SupportWorkspace() {
   const [conversation, setConversation] = useState(null);
   const [message, setMessage] = useState('');
   const [error, setError] = useState('');
+  const [notice, setNotice] = useState('');
 
   const refresh = useCallback(async () => {
     try {
@@ -23,7 +24,13 @@ export default function SupportWorkspace() {
 
       if (conversation?.id) {
         const { data } = await api.get(`/support/conversations/${conversation.id}`);
-        setConversation(data);
+        if (data.status === 'closed') {
+          setConversation(null);
+          setMessage('');
+          setNotice(`Conversation #${data.id} has ended.`);
+        } else {
+          setConversation(data);
+        }
       }
       setError('');
     } catch (requestError) {
@@ -37,10 +44,35 @@ export default function SupportWorkspace() {
     return () => clearInterval(timer);
   }, [refresh]);
 
+  useEffect(() => {
+    if (!conversation?.id) return undefined;
+
+    let socket;
+    let active = true;
+    api.post(`/support/conversations/${conversation.id}/ticket`)
+      .then(({ data }) => {
+        if (!active) return;
+        const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+        socket = new WebSocket(
+          `${protocol}//${window.location.host}/ws/support/${conversation.id}/?ticket=${encodeURIComponent(data.ticket)}`,
+        );
+        socket.onmessage = () => refresh();
+      })
+      .catch(() => {
+        // The periodic HTTP refresh remains available if WebSocket fails.
+      });
+
+    return () => {
+      active = false;
+      socket?.close();
+    };
+  }, [conversation?.id, refresh]);
+
   async function claim(id) {
     try {
       const { data } = await api.post(`/support/conversations/${id}/claim`);
       setConversation(data);
+      setNotice('');
       await refresh();
     } catch (requestError) {
       setError(requestError.response?.data?.detail || 'Unable to claim chat.');
@@ -61,6 +93,20 @@ export default function SupportWorkspace() {
     }
   }
 
+  async function closeChat() {
+    if (!conversation) return;
+    try {
+      const id = conversation.id;
+      await api.post(`/support/conversations/${id}/close`);
+      setConversation(null);
+      setMessage('');
+      setNotice(`Conversation #${id} has ended.`);
+      await refresh();
+    } catch (requestError) {
+      setError(requestError.response?.data?.detail || 'Unable to close chat.');
+    }
+  }
+
   return (
     <Container sx={{ py: 5 }}>
       <Typography variant="h4" fontWeight={800}>Support workspace</Typography>
@@ -68,6 +114,7 @@ export default function SupportWorkspace() {
         Support agents manage assigned customer conversations.
       </Typography>
       {error && <Alert severity="warning" sx={{ mt: 2 }}>{error}</Alert>}
+      {notice && <Alert severity="info" sx={{ mt: 2 }} onClose={() => setNotice('')}>{notice}</Alert>}
 
       <Grid container spacing={3} sx={{ mt: 2 }}>
         <Grid item xs={12} md={4}>
@@ -119,11 +166,7 @@ export default function SupportWorkspace() {
               </Stack>
               <Button
                 sx={{ mt: 2 }}
-                onClick={async () => {
-                  await api.post(`/support/conversations/${conversation.id}/close`);
-                  setConversation(null);
-                  refresh();
-                }}
+                onClick={closeChat}
               >
                 Close chat
               </Button>
