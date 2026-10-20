@@ -12,7 +12,7 @@ The demo provides no guaranteed delivery date, carrier label or tracking number.
 
 ## Missing or damaged delivery
 
-If the customer describes a missing or damaged parcel, the assistant should ask for the order number and relevant context, then direct the customer to human support. Human staff may record the complaint. There is no automatic claim of carrier liability or refund eligibility.
+If the customer describes a missing or damaged parcel, the assistant should ask for the order number and relevant context, then create a Jira ticket through MCP for staff follow-up or offer live human chat. Human staff decide what happens next. There is no automatic claim of carrier liability or refund eligibility.
 
 ## Address corrections
 
