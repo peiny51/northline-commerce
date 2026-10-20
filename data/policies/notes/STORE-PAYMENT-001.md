@@ -8,7 +8,7 @@ A successful browser redirect is not proof of payment. The server relies on veri
 
 ## Refund requests
 
-Customers may ask a support agent to review a refund request. The AI can create a human-review record but cannot issue a refund, promise a refund amount, or claim that a refund has been processed.
+Customers may ask a support agent to review a refund request. The AI may use MCP to create a Jira ticket containing the request and recommendations for staff, without a preliminary approval step. It cannot issue a refund, promise a refund amount, or claim that a refund has been processed.
 
 ## Payment failures
 
