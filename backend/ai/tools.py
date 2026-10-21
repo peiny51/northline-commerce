@@ -1,6 +1,6 @@
 from django.db.models import Q
 from backend.catalog.models import Product, ProductVariant
-from backend.catalog.serializers import ProductSerializer
+from backend.catalog.serializers import ProductDetailSerializer
 from backend.orders.models import Order
 from backend.orders.services import order_snapshot
 
@@ -16,12 +16,12 @@ def search_products(search="", category="", brand="", max_price_cad=None, limit=
         qs = qs.filter(brand__iexact=brand)
     if max_price_cad is not None:
         qs = qs.filter(price_cents__lte=int(float(max_price_cad) * 100))
-    return ProductSerializer(qs.order_by("price_cents")[:min(max(int(limit), 1), 12)], many=True).data
+    return ProductDetailSerializer(qs.order_by("price_cents")[:min(max(int(limit), 1), 12)], many=True).data
 
 
 def get_product_details(product_id):
     product = Product.objects.select_related("category").prefetch_related("variants").filter(id=product_id, is_active=True).first()
-    return ProductSerializer(product).data if product else {"error": "Product not found"}
+    return ProductDetailSerializer(product).data if product else {"error": "Product not found"}
 
 
 def check_inventory(variant_id):
