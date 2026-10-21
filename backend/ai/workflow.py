@@ -46,7 +46,12 @@ class Decision(BaseModel):
 
 
 def llm():
-    return ChatGoogleGenerativeAI(model=Config.GEMINI_MODEL, temperature=0)
+    return ChatGoogleGenerativeAI(
+        model=Config.GEMINI_MODEL,
+        temperature=0,
+        timeout=12,       # Per-attempt HTTP timeout in seconds.
+        max_retries=2,   # Google SDK counts total attempts (initial + retry).
+    )
 
 
 # route to the appropriate node based on the customer's question and context
@@ -293,6 +298,8 @@ def answer_customer(question, user, conversation):
         error_text = str(exc)
         if "RESOURCE_EXHAUSTED" in error_text or "429" in error_text:
             message = "Our AI assistant has reached its usage limit. Please try again later or contact human support."
+        elif "503" in error_text or "UNAVAILABLE" in error_text:
+            message = "Our AI service is temporarily busy. Please try again shortly or contact human support."
         else:
             message = "Our AI assistant ran into a technical issue. Please try again or contact human support."
         return {"message": message, "data": {}}
