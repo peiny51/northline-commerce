@@ -173,8 +173,26 @@ def recommendation_node(state: AgentState):
     requested_ids = set(result.product_ids)
     matched = [product for product in products if product["id"] in requested_ids]
 
-    # The backend, not the model's prose, determines how alternative cards are labeled.
+    # If there are no exact matches, offer same-category catalog alternatives
+    # instead of relying on the model to select optional alternative IDs.
     match_type = result.match_type if matched else "none"
+    if match_type == "none" and products:
+        category = criteria.category.lower().strip()
+        search_term = criteria.search.lower().strip()
+        alternatives = [
+            product for product in products
+            if (
+                (category and product["category"].lower() == category)
+                or (search_term and search_term in product["name"].lower())
+            )
+            and (
+                criteria.max_price_cad is None
+                or product["price_cents"] <= int(criteria.max_price_cad * 100)
+            )
+        ]
+        if alternatives:
+            matched = alternatives[:3]
+            match_type = "alternative"
     latest_question = state["question"].lower()
     if any(term in latest_question for term in ("fireproof", "fire resistant", "fire-resistant", "flame resistant", "flame-resistant")):
         # Do not imply that ordinary outerwear is certified protective equipment.
