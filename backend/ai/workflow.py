@@ -115,6 +115,29 @@ def product_criteria(state: AgentState):
 def recommendation_node(state: AgentState):
     criteria = product_criteria(state)
     products = search_products(**criteria.model_dump())
+
+    if not products and state.get("data", {}).get("products"):
+        # For a short preference follow-up, reuse the prior real catalog candidates.
+        # Do not carry products over when the customer names a new product type.
+        from backend.catalog.models import Category
+        latest = state["question"].lower()
+        category_words = {
+            category.name.lower().removesuffix("s")
+            for category in Category.objects.all()
+        }
+        prior = state["data"]["products"]
+        prior_categories = {str(p.get("category", "")).lower() for p in prior}
+        mentions_new_category = any(
+            word in latest and word not in {c.removesuffix("s") for c in prior_categories}
+            for word in category_words
+        )
+        if not mentions_new_category:
+            budget = criteria.max_price_cad
+            products = [
+                p for p in prior
+                if budget is None or p["price_cents"] <= int(budget * 100)
+            ]
+
     answer = llm().invoke([
         SystemMessage(content=(
             "Recommend or compare only products in the provided catalog JSON. "
