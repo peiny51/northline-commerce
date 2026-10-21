@@ -159,69 +159,54 @@ def recommendation_node(state: AgentState):
 
     result = llm().with_structured_output(RecommendationResult).invoke([
         SystemMessage(content=(
-            "Use only the provided catalog data. Identify exact matches only if every "
-            "requested feature is explicitly supported, including safety properties. "
-            "Set match_type=exact for verified matches, alternative for same-category "
-            "products that do NOT meet all requirements, or none when none are relevant. "
-            "For alternatives, explicitly explain what is not verified and never claim "
-            "that ordinary jackets provide fire protection. Do not offer alternatives "
-            "above an explicit budget. Return only IDs from the supplied catalog."
+            "Use only the provided catalog JSON. Treat each requested feature, size, "
+            "color, purpose, and budget as a separate constraint. Call a product an "
+            "exact match only when every requirement is supported by catalog evidence; "
+            "missing information is NOT proof of a feature. Especially do not claim "
+            "unverified safety or protective performance. For an exact match, return "
+            "match_type=exact and only matching product IDs. Otherwise, return "
+            "match_type=alternative with same-category product IDs, or none if there "
+            "are no relevant alternatives. Clearly distinguish alternatives from "
+            "actual matches and explain uncertainty; do not imply alternatives "
+            "satisfy missing requirements. Respect the customer's budget, current "
+            "product category and topic changes. Never invent product facts."
         )),
         SystemMessage(content=f"Live catalog JSON: {json.dumps(products)}"),
         *recent_messages(state),
     ])
     requested_ids = set(result.product_ids)
     matched = [product for product in products if product["id"] in requested_ids]
-
-    # If there are no exact matches, offer same-category catalog alternatives
-    # instead of relying on the model to select optional alternative IDs.
     match_type = result.match_type if matched else "none"
+
+    # Fall back to category-related options only when no exact match was found.
     if match_type == "none" and products:
-        category = criteria.category.lower().strip()
-        search_term = criteria.search.lower().strip()
+        category = criteria.category.casefold().strip()
+        noun = criteria.search.casefold().strip()
         alternatives = [
             product for product in products
-            if (
-                (category and product["category"].lower() == category)
-                or (search_term and search_term in product["name"].lower())
-            )
-            and (
-                criteria.max_price_cad is None
-                or product["price_cents"] <= int(criteria.max_price_cad * 100)
-            )
+            if ((category and product["category"].casefold() == category)
+                or (noun and noun in product["name"].casefold()))
+            and (criteria.max_price_cad is None
+                 or product["price_cents"] <= round(criteria.max_price_cad * 100))
         ]
         if alternatives:
             matched = alternatives[:3]
             match_type = "alternative"
-    latest_question = state["question"].lower()
-    if any(term in latest_question for term in ("fireproof", "fire resistant", "fire-resistant", "flame resistant", "flame-resistant")):
-        # Do not imply that ordinary outerwear is certified protective equipment.
-        has_verified_protection = all(
-            any(term in (product.get("description") or "").lower()
-                for term in ("fireproof", "flame-resistant", "flame resistant", "fire-resistant", "fire resistant"))
-            for product in matched
-        )
-        if matched and not has_verified_protection:
-            match_type = "alternative"
 
     message = result.message.strip()
     if match_type == "alternative":
-        # A fixed disclosure prevents contradictory replies such as "unavailable"
-        # followed by unlabeled product cards.
-        if any(term in latest_question for term in ("fireproof", "fire resistant", "fire-resistant", "flame resistant", "flame-resistant")):
-            message = (
-                "We don't have a jacket verified for fire protection. "
-                "The jackets below are other options only; they are not verified "
-                "fire-resistant protective equipment and must not be used for fire protection."
-            )
-        else:
-            message = (
-                message + "\n\n"
-                "The products shown below are alternatives, not verified matches "
-                "for every requested feature."
-            )
+        # Never display alternative cards under a message implying they are exact matches.
+        # Use one generic disclosure for all product types and attributes.
+        message = (
+            "I couldn't verify a product that meets all your requested requirements. "
+            "Here are some related options from our catalog. They are alternatives, "
+            "not confirmed matches for the features you requested. "
+            "If you need a protective or safety-rated feature, do not rely on these "
+            "alternatives without checking the appropriate certification."
+        )
     elif match_type == "none":
         matched = []
+        message = message or "I couldn't find a verified match in our current catalog."
     return reply(message, {"products": matched, "match_type": match_type})
 
 
