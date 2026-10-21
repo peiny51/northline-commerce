@@ -5,6 +5,8 @@ import {
   Paper, Stack, TextField, Typography,
 } from '@mui/material';
 import { Close, Send } from '@mui/icons-material';
+import ReactMarkdown from 'react-markdown';
+import remarkGfm from 'remark-gfm';
 
 import api from '../api';
 import { money, placeholder } from '../utils/format';
@@ -39,6 +41,25 @@ function RecommendationCards({ products, onClose }) {
   );
 }
 
+function AssistantMessage({ content }) {
+  return (
+    <Box sx={{
+      overflowWrap: 'anywhere',
+      '& p': { mt: 0, mb: 1 },
+      '& p:last-child': { mb: 0 },
+      '& ul, & ol': { my: 1, pl: 2.5 },
+      '& li': { mb: 0.75 },
+      '& li > p': { mb: 0.5 },
+      '& a': { color: 'primary.main' },
+    }}>
+      {/* Render AI Markdown as formatted text rather than displaying ** and list markers. */}
+      <ReactMarkdown remarkPlugins={[remarkGfm]} skipHtml>
+        {content}
+      </ReactMarkdown>
+    </Box>
+  );
+}
+
 function MessageBubble({ message, onClose }) {
   const isCustomer = message.sender === 'customer';
   const title = message.sender === 'ai'
@@ -50,7 +71,11 @@ function MessageBubble({ message, onClose }) {
       <Box sx={{ maxWidth: '92%' }}>
         <Paper sx={{ p: 1.5, background: isCustomer ? '#e2eee4' : '#fff' }}>
           <Typography variant="caption" color="text.secondary">{title}</Typography>
-          <Typography sx={{ whiteSpace: 'pre-wrap' }}>{message.content}</Typography>
+          {message.sender === 'ai' ? (
+            <AssistantMessage content={message.content} />
+          ) : (
+            <Typography sx={{ whiteSpace: 'pre-wrap', overflowWrap: 'anywhere' }}>{message.content}</Typography>
+          )}
         </Paper>
         <RecommendationCards products={message.data?.products} onClose={onClose} />
       </Box>
