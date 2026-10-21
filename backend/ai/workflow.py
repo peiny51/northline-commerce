@@ -44,6 +44,13 @@ class Decision(BaseModel):
     route: Route = Field(description="Best support route for the customer's request")
     product_filters: ProductSearch = Field(default_factory=ProductSearch)
 
+class RecommendationResult(BaseModel):
+    message: str = Field(description="Customer-facing reply grounded in catalog evidence")
+    product_ids: list[int] = Field(
+        default_factory=list,
+        description="Only IDs of catalog products that actually satisfy all customer preferences; empty when none qualify",
+    )
+
 
 def llm():
     return ChatGoogleGenerativeAI(
@@ -145,20 +152,25 @@ def recommendation_node(state: AgentState):
                 if budget is None or p["price_cents"] <= int(budget * 100)
             ]
 
-    answer = llm().invoke([
+    result = llm().with_structured_output(RecommendationResult).invoke([
         SystemMessage(content=(
             "Recommend or compare only products in the provided catalog JSON. "
             "Use live prices and stock; do not invent product features. "
             "A preference such as fireproof, waterproof, or breathable is a requirement, "
             "not evidence that a matching catalog product has that property. "
-            "Only claim a feature when explicitly supported by catalog data; "
-            "otherwise state that no matching product can be verified. "
-            "If no product meets the requested features, say so and do not recommend unrelated products."
+            "Only claim a feature when explicitly supported by catalog data. "
+            "For product_ids, include ONLY IDs of catalog products verified to satisfy every "
+            "requested feature and constraint. Return an empty list when nothing qualifies; "
+            "do not include related items or alternatives unless the customer explicitly asks. "
+            "The message must agree with product_ids: explain when no matching product can be verified."
         )),
         SystemMessage(content=f"Live catalog JSON: {json.dumps(products)}"),
         *recent_messages(state),
     ])
-    return reply(response_text(answer), {"products": products})
+    # Product cards must match the answer, not merely the broad SQL candidates.
+    matched_ids = set(result.product_ids)
+    matched = [product for product in products if product["id"] in matched_ids]
+    return reply(result.message, {"products": matched})
 
 
 def database_node(state: AgentState):
