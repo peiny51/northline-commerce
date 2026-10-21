@@ -48,7 +48,7 @@ class RecommendationResult(BaseModel):
     message: str = Field(description="Customer-facing reply grounded in catalog evidence")
     product_ids: list[int] = Field(
         default_factory=list,
-        description="Only IDs of catalog products that actually satisfy all customer preferences; empty when none qualify",
+        description="IDs of qualifying products, or clearly disclosed same-category alternatives if no exact match exists",
     )
 
 
@@ -159,10 +159,17 @@ def recommendation_node(state: AgentState):
             "A preference such as fireproof, waterproof, or breathable is a requirement, "
             "not evidence that a matching catalog product has that property. "
             "Only claim a feature when explicitly supported by catalog data. "
-            "For product_ids, include ONLY IDs of catalog products verified to satisfy every "
-            "requested feature and constraint. Return an empty list when nothing qualifies; "
-            "do not include related items or alternatives unless the customer explicitly asks. "
-            "The message must agree with product_ids: explain when no matching product can be verified."
+            "First identify products that satisfy every explicit requirement and budget. "
+            "If any qualify, recommend only those and return their IDs in product_ids. "
+            "If none qualify, clearly say which requested feature cannot be verified, then "
+            "optionally suggest relevant products of the same category as alternatives, with "
+            "their IDs in product_ids and an explicit statement that they do not meet that requirement. "
+            "Never claim that ordinary clothing is fireproof, flame-resistant, or appropriate "
+            "for fire protection without explicit catalog evidence or certification. "
+            "Alternatives for safety-critical requirements must not be framed as protective substitutes. "
+            "Never include unrelated products, or products above an explicit budget. "
+            "Keep the message and product_ids consistent; empty IDs means no cards."
+
         )),
         SystemMessage(content=f"Live catalog JSON: {json.dumps(products)}"),
         *recent_messages(state),
