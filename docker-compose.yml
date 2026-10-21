@@ -26,4 +26,6 @@ services:
       - "6381:6379"
 volumes:
   northline_django_postgres:
+    external: true
+    name: northline-django-commerce_northline_django_postgres
   northline_django_qdrant:
