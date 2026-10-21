@@ -51,6 +51,20 @@ def recent_messages(state: AgentState):
     return state["messages"][-Config.AI_HISTORY_MESSAGE_LIMIT:]
 
 
+def response_text(message):
+    # Gemini may return content blocks with text and signature metadata.
+    content = message.content
+    if isinstance(content, str):
+        return content
+    if isinstance(content, list):
+        return "\n".join(
+            block if isinstance(block, str) else block.get("text", "")
+            for block in content
+            if isinstance(block, str) or (isinstance(block, dict) and block.get("type") == "text")
+        ).strip()
+    return str(content)
+
+
 def reply(answer, data=None, **updates):
     # Append AI messages to the checkpointer-backed conversation state.
     return {"answer": answer, "data": data or {}, "messages": [AIMessage(content=answer)], **updates}
@@ -83,7 +97,7 @@ def general_node(state: AgentState):
         )),
         *recent_messages(state),
     ])
-    return reply(str(answer.content))
+    return reply(response_text(answer))
 
 
 def product_criteria(state: AgentState):
@@ -108,7 +122,7 @@ def recommendation_node(state: AgentState):
         SystemMessage(content=f"Live catalog JSON: {json.dumps(products)}"),
         *recent_messages(state),
     ])
-    return reply(str(answer.content), {"products": products})
+    return reply(response_text(answer), {"products": products})
 
 
 def database_node(state: AgentState):
@@ -129,7 +143,7 @@ def database_node(state: AgentState):
         SystemMessage(content=f"Authenticated orders JSON: {json.dumps(orders)}\nLive catalog JSON: {json.dumps(products)}"),
         *recent_messages(state),
     ])
-    return reply(str(answer.content), {"orders": orders, "products": products})
+    return reply(response_text(answer), {"orders": orders, "products": products})
 
 
 def policy_node(state: AgentState):
@@ -139,7 +153,7 @@ def policy_node(state: AgentState):
         SystemMessage(content=f"Retrieved policy context:\n{context}"),
         *recent_messages(state),
     ])
-    return reply(str(answer.content))
+    return reply(response_text(answer))
 
 
 def hybrid_node(state: AgentState):
@@ -156,7 +170,7 @@ def hybrid_node(state: AgentState):
         SystemMessage(content=f"Authenticated orders JSON: {json.dumps(orders)}\nRetrieved policies:\n{context}"),
         *recent_messages(state),
     ])
-    return reply(str(answer.content), {"orders": orders})
+    return reply(response_text(answer), {"orders": orders})
 
 
 def escalation_node(state: AgentState):
