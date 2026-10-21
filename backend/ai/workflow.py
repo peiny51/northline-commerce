@@ -46,9 +46,12 @@ class Decision(BaseModel):
 
 class RecommendationResult(BaseModel):
     message: str = Field(description="Customer-facing reply grounded in catalog evidence")
+    match_type: Literal["exact", "alternative", "none"] = Field(
+        description="exact if all requested features are verified, alternative for same-category options, none if no relevant items"
+    )
     product_ids: list[int] = Field(
         default_factory=list,
-        description="IDs of qualifying products, or clearly disclosed same-category alternatives if no exact match exists",
+        description="IDs of verified matches, or clearly labeled same-category alternatives",
     )
 
 
@@ -154,30 +157,52 @@ def recommendation_node(state: AgentState):
 
     result = llm().with_structured_output(RecommendationResult).invoke([
         SystemMessage(content=(
-            "Recommend or compare only products in the provided catalog JSON. "
-            "Use live prices and stock; do not invent product features. "
-            "A preference such as fireproof, waterproof, or breathable is a requirement, "
-            "not evidence that a matching catalog product has that property. "
-            "Only claim a feature when explicitly supported by catalog data. "
-            "First identify products that satisfy every explicit requirement and budget. "
-            "If any qualify, recommend only those and return their IDs in product_ids. "
-            "If none qualify, clearly say which requested feature cannot be verified, then "
-            "optionally suggest relevant products of the same category as alternatives, with "
-            "their IDs in product_ids and an explicit statement that they do not meet that requirement. "
-            "Never claim that ordinary clothing is fireproof, flame-resistant, or appropriate "
-            "for fire protection without explicit catalog evidence or certification. "
-            "Alternatives for safety-critical requirements must not be framed as protective substitutes. "
-            "Never include unrelated products, or products above an explicit budget. "
-            "Keep the message and product_ids consistent; empty IDs means no cards."
-
+            "Use only the provided catalog data. Identify exact matches only if every "
+            "requested feature is explicitly supported, including safety properties. "
+            "Set match_type=exact for verified matches, alternative for same-category "
+            "products that do NOT meet all requirements, or none when none are relevant. "
+            "For alternatives, explicitly explain what is not verified and never claim "
+            "that ordinary jackets provide fire protection. Do not offer alternatives "
+            "above an explicit budget. Return only IDs from the supplied catalog."
         )),
         SystemMessage(content=f"Live catalog JSON: {json.dumps(products)}"),
         *recent_messages(state),
     ])
-    # Product cards must match the answer, not merely the broad SQL candidates.
-    matched_ids = set(result.product_ids)
-    matched = [product for product in products if product["id"] in matched_ids]
-    return reply(result.message, {"products": matched})
+    requested_ids = set(result.product_ids)
+    matched = [product for product in products if product["id"] in requested_ids]
+
+    # The backend, not the model's prose, determines how alternative cards are labeled.
+    match_type = result.match_type if matched else "none"
+    latest_question = state["question"].lower()
+    if any(term in latest_question for term in ("fireproof", "fire resistant", "fire-resistant", "flame resistant", "flame-resistant")):
+        # Do not imply that ordinary outerwear is certified protective equipment.
+        has_verified_protection = all(
+            any(term in (product.get("description") or "").lower()
+                for term in ("fireproof", "flame-resistant", "flame resistant", "fire-resistant", "fire resistant"))
+            for product in matched
+        )
+        if matched and not has_verified_protection:
+            match_type = "alternative"
+
+    message = result.message.strip()
+    if match_type == "alternative":
+        # A fixed disclosure prevents contradictory replies such as "unavailable"
+        # followed by unlabeled product cards.
+        if any(term in latest_question for term in ("fireproof", "fire resistant", "fire-resistant", "flame resistant", "flame-resistant")):
+            message = (
+                "We don't have a jacket verified for fire protection. "
+                "The jackets below are other options only; they are not verified "
+                "fire-resistant protective equipment and must not be used for fire protection."
+            )
+        else:
+            message = (
+                message + "\n\n"
+                "The products shown below are alternatives, not verified matches "
+                "for every requested feature."
+            )
+    elif match_type == "none":
+        matched = []
+    return reply(message, {"products": matched, "match_type": match_type})
 
 
 def database_node(state: AgentState):
