@@ -6,27 +6,40 @@ from backend.orders.services import order_snapshot
 
 
 def search_products(search="", category="", brand="", max_price_cad=None, limit=6):
-    """Search store catalog using live prices and stock, not generated recommendations."""
-    qs = Product.objects.filter(is_active=True).select_related("category").prefetch_related("variants")
+    """Find real catalog products while avoiding overly strict LLM keyword matches."""
+    limit = min(max(int(limit), 1), 12)
+    base = (
+        Product.objects.filter(is_active=True)
+        .select_related("category").prefetch_related("variants")
+    )
+    if max_price_cad is not None:
+        base = base.filter(price_cents__lte=int(float(max_price_cad) * 100))
+
+    qs = base
     if search:
-        qs = qs.filter(Q(name__icontains=search) | Q(description__icontains=search) | Q(brand__icontains=search))
+        qs = qs.filter(
+            Q(name__icontains=search) | Q(description__icontains=search)
+            | Q(brand__icontains=search)
+        )
     if category:
         qs = qs.filter(category__name__iexact=category)
     if brand:
         qs = qs.filter(brand__iexact=brand)
-    if max_price_cad is not None:
-        qs = qs.filter(price_cents__lte=int(float(max_price_cad) * 100))
-    products = list(qs.order_by("price_cents")[:min(max(int(limit), 1), 12)])
-    if not products and search and (category or brand):
-        # If extracted filters overconstrain the query, retry the product keyword alone.
-        products = list(
-            Product.objects.filter(is_active=True)
-            .filter(Q(name__icontains=search) | Q(description__icontains=search))
-            .select_related("category").prefetch_related("variants")
-            .order_by("price_cents")[:min(max(int(limit), 1), 12)]
-        )
-    return ProductDetailSerializer(products, many=True).data
+    products = list(qs.order_by("price_cents")[:limit])
 
+    if not products and category:
+        # Follow-up adjectives may not appear literally in a product description.
+        # Retain the product category and budget, but relax text/brand filters.
+        products = list(base.filter(category__name__iexact=category)
+                        .order_by("price_cents")[:limit])
+    if not products and search:
+        # Keep the budget constraint even when extracted category/brand is inaccurate.
+        products = list(base.filter(
+            Q(name__icontains=search) | Q(description__icontains=search)
+            | Q(brand__icontains=search)
+        ).order_by("price_cents")[:limit])
+
+    return ProductDetailSerializer(products, many=True).data
 
 def get_product_details(product_id):
     product = Product.objects.select_related("category").prefetch_related("variants").filter(id=product_id, is_active=True).first()
