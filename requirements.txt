@@ -17,3 +17,5 @@ fastembed>=0.7
 mcp>=1
 httpx>=0.28
 langchain-text-splitters>=0.3
+langgraph-checkpoint-postgres>=2,<4
+psycopg[binary]>=3.2,<4
