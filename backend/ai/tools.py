@@ -16,7 +16,16 @@ def search_products(search="", category="", brand="", max_price_cad=None, limit=
         qs = qs.filter(brand__iexact=brand)
     if max_price_cad is not None:
         qs = qs.filter(price_cents__lte=int(float(max_price_cad) * 100))
-    return ProductDetailSerializer(qs.order_by("price_cents")[:min(max(int(limit), 1), 12)], many=True).data
+    products = list(qs.order_by("price_cents")[:min(max(int(limit), 1), 12)])
+    if not products and search and (category or brand):
+        # If extracted filters overconstrain the query, retry the product keyword alone.
+        products = list(
+            Product.objects.filter(is_active=True)
+            .filter(Q(name__icontains=search) | Q(description__icontains=search))
+            .select_related("category").prefetch_related("variants")
+            .order_by("price_cents")[:min(max(int(limit), 1), 12)]
+        )
+    return ProductDetailSerializer(products, many=True).data
 
 
 def get_product_details(product_id):
