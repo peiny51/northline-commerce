@@ -91,7 +91,7 @@ def reply(answer, data=None, **updates):
 def route_node(state: AgentState):
     decision = llm().with_structured_output(Decision).invoke([
         SystemMessage(content=(
-            "Select exactly one route: general for conversation or common explanations not requiring store facts; "
+            "Select exactly one route: general for greetings, capability questions, and off-topic requests; "
             "policy for store rules requiring RAG; database for factual product availability, prices, "
             "or authenticated order information; hybrid for questions combining an order with store policy; "
             "recommendation for all shopping or product-discovery questions, including "
@@ -115,14 +115,13 @@ def route_node(state: AgentState):
 
 
 def general_node(state: AgentState):
-    answer = llm().invoke([
-        SystemMessage(content=(
-            "Answer general questions helpfully. You have no store-specific facts on this route. "
-            "Do not invent prices, inventory, order statuses, policies, or promise business actions."
-        )),
-        *recent_messages(state),
-    ])
-    return reply(response_text(answer))
+    # Keep general chat store-scoped and free of an extra LLM call.
+    return reply(
+        "Hi! I'm Northline's store support assistant. I can help you find "
+        "products, answer questions about shipping and returns, check your "
+        "orders, or connect you with a human support agent. "
+        "I can't help with requests unrelated to this store."
+    )
 
 
 def product_criteria(state: AgentState):
