@@ -1,5 +1,6 @@
 """LangGraph customer support: general, RAG, database, hybrid, recommendation, Jira escalation."""
 import json
+import logging
 import os
 from typing import Annotated, Literal, TypedDict
 
@@ -16,12 +17,14 @@ from backend.ai.tools import get_my_orders, policy_context, search_products
 
 
 Route = Literal["general", "policy", "database", "hybrid", "recommendation", "escalation"]
+logger = logging.getLogger(__name__)
 
 
 class AgentState(TypedDict, total=False):
     question: str
     messages: Annotated[list, add_messages]
     route: Route
+    product_filters: dict
     user_id: int
     conversation_id: int
     answer: str
@@ -30,15 +33,16 @@ class AgentState(TypedDict, total=False):
     last_jira_issue_key: str
 
 
-class Decision(BaseModel):
-    route: Route = Field(description="Best support route for the customer's request")
-
-
 class ProductSearch(BaseModel):
     search: str = Field(default="", description="Product name or concise searchable keywords")
     category: str = ""
     brand: str = ""
     max_price_cad: float | None = None
+
+
+class Decision(BaseModel):
+    route: Route = Field(description="Best support route for the customer's request")
+    product_filters: ProductSearch = Field(default_factory=ProductSearch)
 
 
 def llm():
@@ -82,11 +86,16 @@ def route_node(state: AgentState):
             "Questions about refund eligibility or policy alone belong in policy or hybrid, not escalation. "
             "Creating a Jira ticket needs no approval, but the assistant must never execute refunds or cancellations. "
             "Route the latest request, not an earlier one; use history to interpret follow-ups and topic changes. "
-            "Never create a new ticket simply because earlier messages mentioned a refund."
+            "Never create a new ticket simply because earlier messages mentioned a refund. "
+            "At the same time, extract product_filters for recommendation/database routes. "
+            "Use the conversation to keep the prior product type for follow-up preferences, "
+            "but use only a short product noun for search (not adjectives like waterproof, warm, or fireproof). "
+            "Carry forward a budget only when the customer has not changed it. "
+            "Leave filters empty for unrelated questions. Do not invent brands."
         )),
         *recent_messages(state),
     ])
-    return {"route": decision.route}
+    return {"route": decision.route, "product_filters": decision.product_filters.model_dump()}
 
 
 def general_node(state: AgentState):
@@ -101,15 +110,8 @@ def general_node(state: AgentState):
 
 
 def product_criteria(state: AgentState):
-    return llm().with_structured_output(ProductSearch).invoke([
-        SystemMessage(content=(
-            "Extract product search filters from the latest user request and relevant prior conversation. "
-            "For follow-up preferences, keep the prior product type (e.g. jacket) and apply new budget limits. "
-            "The search field should be a short product noun, not descriptive adjectives like waterproof or warm. "
-            "Use category when known; never invent a brand or a product."
-        )),
-        *recent_messages(state),
-    ])
+    # Router already extracted filters; avoid a second Gemini request per turn.
+    return ProductSearch.model_validate(state.get("product_filters") or {})
 
 
 def recommendation_node(state: AgentState):
@@ -141,7 +143,12 @@ def recommendation_node(state: AgentState):
     answer = llm().invoke([
         SystemMessage(content=(
             "Recommend or compare only products in the provided catalog JSON. "
-            "Use live prices and stock; do not invent product features."
+            "Use live prices and stock; do not invent product features. "
+            "A preference such as fireproof, waterproof, or breathable is a requirement, "
+            "not evidence that a matching catalog product has that property. "
+            "Only claim a feature when explicitly supported by catalog data; "
+            "otherwise state that no matching product can be verified. "
+            "If no product meets the requested features, say so and do not recommend unrelated products."
         )),
         SystemMessage(content=f"Live catalog JSON: {json.dumps(products)}"),
         *recent_messages(state),
@@ -280,6 +287,12 @@ def answer_customer(question, user, conversation):
                 config={"configurable": {"thread_id": f"support-{conversation.id}"}},
             )
         return {"message": result["answer"], "data": result.get("data", {})}
-    except Exception:
-        # External failures must never be presented as completed Jira tickets or actions.
-        return {"message": "I couldn't complete that request. No Jira ticket is confirmed; please ask for a human agent."}
+    except Exception as exc:
+        # Preserve the traceback, but never leak provider details or keys to customers.
+        logger.exception("AI support workflow failed")
+        error_text = str(exc)
+        if "RESOURCE_EXHAUSTED" in error_text or "429" in error_text:
+            message = "Our AI assistant has reached its usage limit. Please try again later or contact human support."
+        else:
+            message = "Our AI assistant ran into a technical issue. Please try again or contact human support."
+        return {"message": message, "data": {}}
