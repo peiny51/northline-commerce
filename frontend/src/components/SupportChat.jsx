@@ -24,6 +24,11 @@ function RecommendationCards({ products, onClose }) {
             height="100"
           />
           <CardContent sx={{ p: 1 }}>
+            {product.match_type && (
+              <Typography variant="caption" color="text.secondary" display="block">
+                {product.match_type === 'alternative' ? 'Alternative' : 'Match'}
+              </Typography>
+            )}
             <Typography variant="body2" fontWeight={700}>{product.name}</Typography>
             <Typography variant="body2">{money(product.price_cents)}</Typography>
             <Button
