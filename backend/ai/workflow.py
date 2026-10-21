@@ -40,6 +40,7 @@ def llm():
     return ChatGoogleGenerativeAI(model=Config.GEMINI_MODEL, temperature=0)
 
 
+# route to the appropriate node based on the customer's question and context
 def route_node(state: AgentState):
     decision = llm().with_structured_output(Decision).invoke([
         SystemMessage(content=(
@@ -195,6 +196,7 @@ def build_graph():
         graph.add_node(name, node)
         graph.add_edge(name, END)
     graph.add_edge(START, "router")
+    # conditional edges based on router return, which is used to update state
     graph.add_conditional_edges("router", lambda state: state["route"])
     return graph.compile()
 
