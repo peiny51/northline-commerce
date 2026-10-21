@@ -95,7 +95,9 @@ def route_node(state: AgentState):
             "Select exactly one route: general for conversation or common explanations not requiring store facts; "
             "policy for store rules requiring RAG; database for factual product availability, prices, "
             "or authenticated order information; hybrid for questions combining an order with store policy; "
-            "recommendation for product suggestions or comparisons grounded in the catalog; "
+            "recommendation for all shopping or product-discovery questions, including "
+            "do you have X, products with requested features, and alternatives, even if "
+            "the user phrases the request as an availability question; "
             "escalation for actual refund/cancellation requests, complaints requiring staff action, "
             "or issues the assistant cannot resolve. "
             "Questions about refund eligibility or policy alone belong in policy or hybrid, not escalation. "
@@ -206,6 +208,16 @@ def recommendation_node(state: AgentState):
 
 
 def database_node(state: AgentState):
+    # Catalog-only questions should use the recommendation flow so the text and
+    # product cards share the same exact/alternative/none classification.
+    question = state["question"].lower()
+    order_terms = (
+        "my order", "order status", "order number", "ordered", "purchased",
+        "i bought", "my purchase", "tracking", "shipment", "my delivery",
+        "refund", "return", "cancel",
+    )
+    if not any(term in question for term in order_terms):
+        return recommendation_node(state)
     from django.contrib.auth import get_user_model
 
     user = get_user_model().objects.get(pk=state["user_id"])
