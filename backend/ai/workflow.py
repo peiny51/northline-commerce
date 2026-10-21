@@ -139,7 +139,7 @@ def policy_node(state: AgentState):
         SystemMessage(content=f"Retrieved policy context:\n{context}"),
         *recent_messages(state),
     ])
-    return {"answer": str(answer.content)}
+    return reply(str(answer.content))
 
 
 def hybrid_node(state: AgentState):
@@ -230,7 +230,7 @@ def answer_customer(question, user, conversation):
         return {"message": "AI is not configured yet. Please request human support."}
     try:
         # Restore and persist LangGraph state for this support conversation.
-        with PostgresSaver.from_conn_string(os.environ["DATABASE_URL"]) as checkpointer:
+        with PostgresSaver.from_conn_string(os.getenv("DATABASE_URL", "postgresql://outdoor:outdoor@127.0.0.1:5434/northline_django")) as checkpointer:
             graph = build_graph(checkpointer=checkpointer)
             result = graph.invoke(
                 {
