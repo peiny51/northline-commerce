@@ -7,7 +7,7 @@
 - **Authentication:** Auth0 RS256 JWT verification for React customers; Django user mapping; Django Groups + model permissions for store staff. Demo identity headers are accepted **only** with both `DEBUG=true` and `DEMO_MODE=true`.
 - **Commerce:** ProductVariant stock, per-user cart, order snapshots in CAD cents, transaction/row-lock-based stock reservations, Stripe **test-mode** Checkout and verified webhooks, payment event deduplication, expiration reconciliation.
 - **Support:** AI chat, customer-owned conversations, support-agent claims, automatic Jira MCP ticket escalation, Channels notifications with short-lived signed WebSocket tickets, REST polling fallback.
-- **Agent:** LangGraph intent router with general / policy (RAG) / database / hybrid / recommendation / escalation nodes; Django ORM product and authenticated order tools; Gemini for language generation. Policy RAG uses persistent Qdrant dense + BM25 sparse RRF and cross-encoder reranking.
+- **Agent:** LangGraph intent router with general / policy (RAG) / database / hybrid / recommendation / escalation nodes; Django ORM product and authenticated order tools; Gemini for language generation. LangGraph persists conversation state with PostgreSQL PostgresSaver and caps each LLM context via `AI_HISTORY_MESSAGE_LIMIT`. Policy RAG uses persistent Qdrant dense + BM25 sparse RRF and cross-encoder reranking.
 - **Admin:** `/admin/` with catalog inlines, orders as read-only business records, staff groups, conversations. 
 
 ### Explicit limitations
@@ -27,6 +27,7 @@ source .venv/bin/activate
 python -m pip install --upgrade pip
 pip install -r requirements.txt
 python manage.py migrate
+python -m scripts.init_ai_checkpoints
 python manage.py seed_roles
 python manage.py seed_catalog
 python manage.py createsuperuser
@@ -43,6 +44,10 @@ npm run dev
 ```
 
 Storefront: <http://127.0.0.1:5173/> · Django Admin: <http://127.0.0.1:8000/admin/> · API: <http://127.0.0.1:8000/api/products>
+
+### AI memory and message limit
+
+Set `AI_HISTORY_MESSAGE_LIMIT=10` in `.env` (try `5` to reduce token usage). It limits the last N messages sent to each Gemini call, **not** the messages and checkpoints stored in PostgreSQL. The checkpoint thread is `support-<conversation_id>`; `SupportMessage` remains the canonical customer and staff chat record. After installing Python dependencies, initialize LangGraph checkpoint tables once using `python -m scripts.init_ai_checkpoints`, then restart Daphne.
 
 ### AI policy index
 
