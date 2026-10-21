@@ -46,12 +46,11 @@ class Decision(BaseModel):
 
 class RecommendationResult(BaseModel):
     message: str = Field(description="Customer-facing reply grounded in catalog evidence")
-    match_type: Literal["exact", "alternative", "none"] = Field(
-        description="exact if all requested features are verified, alternative for same-category options, none if no relevant items"
+    exact_product_ids: list[int] = Field(
+        default_factory=list, description="Catalog IDs satisfying every requested constraint"
     )
-    product_ids: list[int] = Field(
-        default_factory=list,
-        description="IDs of verified matches, or clearly labeled same-category alternatives",
+    alternative_product_ids: list[int] = Field(
+        default_factory=list, description="Same-category options that do not satisfy every constraint"
     )
 
 
@@ -159,55 +158,56 @@ def recommendation_node(state: AgentState):
 
     result = llm().with_structured_output(RecommendationResult).invoke([
         SystemMessage(content=(
-            "Use only the provided catalog JSON. Treat each requested feature, size, "
-            "color, purpose, and budget as a separate constraint. Call a product an "
-            "exact match only when every requirement is supported by catalog evidence; "
-            "missing information is NOT proof of a feature. Especially do not claim "
-            "unverified safety or protective performance. For an exact match, return "
-            "match_type=exact and only matching product IDs. Otherwise, return "
-            "match_type=alternative with same-category product IDs, or none if there "
-            "are no relevant alternatives. Clearly distinguish alternatives from "
-            "actual matches and explain uncertainty; do not imply alternatives "
-            "satisfy missing requirements. Respect the customer's budget, current "
-            "product category and topic changes. Never invent product facts."
+            "Use only the provided catalog JSON. Evaluate the customer's requested "
+            "product type, features, color, size and budget against each item. "
+            "Return exact_product_ids only when the catalog explicitly supports ALL "
+            "requirements; missing information is not evidence of a feature. "
+            "Return alternative_product_ids for relevant same-category items that "
+            "do not meet all requirements, preferably only when no exact match exists. "
+            "Never imply unverified safety or protective capabilities. "
+            "Do not suggest unrelated items or items above the customer's budget. "
+            "Explain unavailable or uncertain features clearly in the message. "
+            "Return IDs from the catalog only; never invent products or details."
         )),
         SystemMessage(content=f"Live catalog JSON: {json.dumps(products)}"),
         *recent_messages(state),
     ])
-    requested_ids = set(result.product_ids)
-    matched = [product for product in products if product["id"] in requested_ids]
-    match_type = result.match_type if matched else "none"
 
-    # Fall back to category-related options only when no exact match was found.
-    if match_type == "none" and products:
+    # Only expose catalog records that were actually retrieved within the budget.
+    available = [
+        product for product in products
+        if criteria.max_price_cad is None
+        or product["price_cents"] <= int(criteria.max_price_cad * 100)
+    ]
+    exact_ids = set(result.exact_product_ids)
+    alternative_ids = set(result.alternative_product_ids) - exact_ids
+    exact = [product for product in available if product["id"] in exact_ids]
+    alternatives = [product for product in available if product["id"] in alternative_ids]
+
+    if not exact and not alternatives:
+        # Keep recommendations relevant when the model omits alternative IDs.
         category = criteria.category.casefold().strip()
         noun = criteria.search.casefold().strip()
         alternatives = [
-            product for product in products
-            if ((category and product["category"].casefold() == category)
-                or (noun and noun in product["name"].casefold()))
-            and (criteria.max_price_cad is None
-                 or product["price_cents"] <= round(criteria.max_price_cad * 100))
-        ]
-        if alternatives:
-            matched = alternatives[:3]
-            match_type = "alternative"
+            product for product in available
+            if (category and product["category"].casefold() == category)
+            or (noun and noun in product["name"].casefold())
+        ][:3]
 
-    message = result.message.strip()
-    if match_type == "alternative":
-        # Never display alternative cards under a message implying they are exact matches.
-        # Use one generic disclosure for all product types and attributes.
-        message = (
-            "I couldn't verify a product that meets all your requested requirements. "
-            "Here are some related options from our catalog. They are alternatives, "
-            "not confirmed matches for the features you requested. "
-            "If you need a protective or safety-rated feature, do not rely on these "
-            "alternatives without checking the appropriate certification."
+    # Per-card status is display data; it does not change the product in the DB.
+    shown = (
+        [{**product, "match_type": "exact"} for product in exact]
+        + [{**product, "match_type": "alternative"} for product in alternatives]
+    )[:3]
+    message = result.message.strip() or "Here is what I found in our catalog."
+    if any(product["match_type"] == "alternative" for product in shown):
+        message += (
+            "\n\nProducts labeled Alternative are other options, "
+            "not confirmed matches for every requirement."
         )
-    elif match_type == "none":
-        matched = []
-        message = message or "I couldn't find a verified match in our current catalog."
-    return reply(message, {"products": matched, "match_type": match_type})
+
+    overall_type = "exact" if exact else ("alternative" if shown else "none")
+    return reply(message, {"products": shown, "match_type": overall_type})
 
 
 def database_node(state: AgentState):
