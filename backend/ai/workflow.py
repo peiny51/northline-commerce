@@ -103,9 +103,10 @@ def general_node(state: AgentState):
 def product_criteria(state: AgentState):
     return llm().with_structured_output(ProductSearch).invoke([
         SystemMessage(content=(
-            "Extract only product search filters from the request. "
-            "Use relevant past messages to interpret follow-up preferences, but ignore unrelated older topics. "
-            "Leave unsupported filters empty; never invent products."
+            "Extract product search filters from the latest user request and relevant prior conversation. "
+            "For follow-up preferences, keep the prior product type (e.g. jacket) and apply new budget limits. "
+            "The search field should be a short product noun, not descriptive adjectives like waterproof or warm. "
+            "Use category when known; never invent a brand or a product."
         )),
         *recent_messages(state),
     ])
