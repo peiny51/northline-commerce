@@ -111,7 +111,20 @@ def route_node(state: AgentState):
         )),
         *recent_messages(state),
     ])
-    return {"route": decision.route, "product_filters": decision.product_filters.model_dump()}
+    route = decision.route
+    question = state["question"].lower()
+
+    # Explicit personal order lookups must not be mistaken for product searches.
+    order_lookup = (
+        "my order", "my latest order", "my recent order", "order status",
+        "my purchase", "my shipment", "track my order",
+    )
+    if route in ("recommendation", "general", "database") and any(
+        term in question for term in order_lookup
+    ):
+        route = "database"
+
+    return {"route": route, "product_filters": decision.product_filters.model_dump()}
 
 
 def general_node(state: AgentState):
