@@ -146,6 +146,8 @@ def route_node(state: AgentState):
         *recent_messages(state),
     ])
 
+    # Log the selected node so routing mistakes are visible during testing.
+    logger.info("AI router selected route=%s", decision.route)
     return {
         "route": decision.route,
         "product_filters": decision.product_filters.model_dump(),
@@ -169,28 +171,6 @@ def product_criteria(state: AgentState):
 def recommendation_node(state: AgentState):
     criteria = product_criteria(state)
     products = search_products(**criteria.model_dump())
-
-    if not products and state.get("data", {}).get("products"):
-        # For a short preference follow-up, reuse the prior real catalog candidates.
-        # Do not carry products over when the customer names a new product type.
-        from backend.catalog.models import Category
-        latest = state["question"].lower()
-        category_words = {
-            category.name.lower().removesuffix("s")
-            for category in Category.objects.all()
-        }
-        prior = state["data"]["products"]
-        prior_categories = {str(p.get("category", "")).lower() for p in prior}
-        mentions_new_category = any(
-            word in latest and word not in {c.removesuffix("s") for c in prior_categories}
-            for word in category_words
-        )
-        if not mentions_new_category:
-            budget = criteria.max_price_cad
-            products = [
-                p for p in prior
-                if budget is None or p["price_cents"] <= int(budget * 100)
-            ]
 
     result = llm().with_structured_output(RecommendationResult).invoke([
         SystemMessage(content=(
@@ -220,16 +200,6 @@ def recommendation_node(state: AgentState):
     exact = [product for product in available if product["id"] in exact_ids]
     alternatives = [product for product in available if product["id"] in alternative_ids]
 
-    if not exact and not alternatives:
-        # Keep recommendations relevant when the model omits alternative IDs.
-        category = criteria.category.casefold().strip()
-        noun = criteria.search.casefold().strip()
-        alternatives = [
-            product for product in available
-            if (category and product["category"].casefold() == category)
-            or (noun and noun in product["name"].casefold())
-        ][:3]
-
     # Per-card status is display data; it does not change the product in the DB.
     shown = (
         [{**product, "match_type": "exact"} for product in exact]
@@ -247,16 +217,7 @@ def recommendation_node(state: AgentState):
 
 
 def database_node(state: AgentState):
-    # Catalog-only questions should use the recommendation flow so the text and
-    # product cards share the same exact/alternative/none classification.
-    question = state["question"].lower()
-    order_terms = (
-        "my order", "order status", "order number", "ordered", "purchased",
-        "i bought", "my purchase", "tracking", "shipment", "my delivery",
-        "refund", "return", "cancel",
-    )
-    if not any(term in question for term in order_terms):
-        return recommendation_node(state)
+    # The router selects the node; do not reroute based on question keywords.
     from django.contrib.auth import get_user_model
 
     user = get_user_model().objects.get(pk=state["user_id"])
