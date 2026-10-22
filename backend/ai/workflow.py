@@ -91,41 +91,65 @@ def reply(answer, data=None, **updates):
 def route_node(state: AgentState):
     decision = llm().with_structured_output(Decision).invoke([
         SystemMessage(content=(
-            "Select exactly one route: general for greetings, capability questions, and off-topic requests; "
-            "policy for store rules requiring RAG; database for factual product availability, prices, "
-            "or authenticated order information; hybrid for questions combining an order with store policy; "
-            "recommendation for all shopping or product-discovery questions, including "
-            "do you have X, products with requested features, and alternatives, even if "
-            "the user phrases the request as an availability question; "
-            "escalation for actual refund/cancellation requests, complaints requiring staff action, "
-            "or issues the assistant cannot resolve. "
-            "Questions about refund eligibility or policy alone belong in policy or hybrid, not escalation. "
-            "Creating a Jira ticket needs no approval, but the assistant must never execute refunds or cancellations. "
-            "Route the latest request, not an earlier one; use history to interpret follow-ups and topic changes. "
-            "Never create a new ticket simply because earlier messages mentioned a refund. "
-            "At the same time, extract product_filters for recommendation/database routes. "
-            "Use the conversation to keep the prior product type for follow-up preferences, "
-            "but use only a short product noun for search (not adjectives like waterproof, warm, or fireproof). "
-            "Carry forward a budget only when the customer has not changed it. "
-            "Leave filters empty for unrelated questions. Do not invent brands."
+            "You are the intent router for Northline Commerce customer support. "
+            "Choose exactly one route based on the customer's latest request.\n\n"
+
+            "general:\n"
+            "Use for greetings, assistant capabilities, or requests unrelated "
+            "to Northline Commerce.\n\n"
+
+            "database:\n"
+            "Use when the customer asks about their own order status, order "
+            "details, purchase history, or delivery information. "
+            "This route can access authenticated customer order data.\n\n"
+
+            "policy:\n"
+            "Use when the customer asks about general store policies, such as "
+            "returns, refunds, shipping, or warranties, without requiring "
+            "their personal order information.\n\n"
+
+            "hybrid:\n"
+            "Use when answering requires both the customer's order data "
+            "and store policies. For example, whether a specific order "
+            "is eligible for a return or refund.\n\n"
+
+            "recommendation:\n"
+            "Use when the customer wants to find, compare, or learn about "
+            "products in the catalog, including product availability, "
+            "prices, features, and alternatives.\n\n"
+
+            "escalation:\n"
+            "Use when the customer explicitly requests a business action "
+            "requiring staff review, such as requesting a refund, "
+            "cancelling an order, or creating a support ticket.\n\n"
+
+            "Important:\n"
+            "- Distinguish questions from requests to perform actions.\n"
+            "- Questions about personal order status belong to database, "
+            "not recommendation.\n"
+            "- Questions about general return policies belong to policy.\n"
+            "- Questions about a specific order's return eligibility "
+            "belong to hybrid.\n"
+            "- Requests to initiate a refund or cancellation belong "
+            "to escalation.\n"
+            "- Use conversation history only to understand follow-up "
+            "questions; prioritize the latest customer request.\n\n"
+
+            "For recommendation and catalog-related requests, also extract "
+            "product_filters: search, category, brand, and max_price_cad. "
+            "Use a short product noun as the search term. Preserve the prior "
+            "product type for follow-up preferences, but recognize changes "
+            "to a different product category. Preserve a budget only when "
+            "the customer has not changed it. "
+            "For unrelated requests, leave product_filters empty."
         )),
         *recent_messages(state),
     ])
-    route = decision.route
-    question = state["question"].lower()
 
-    # Explicit personal order lookups must not be mistaken for product searches.
-    order_lookup = (
-        "my order", "my latest order", "my recent order", "order status",
-        "my purchase", "my shipment", "track my order",
-    )
-    if route in ("recommendation", "general", "database") and any(
-        term in question for term in order_lookup
-    ):
-        route = "database"
-
-    return {"route": route, "product_filters": decision.product_filters.model_dump()}
-
+    return {
+        "route": decision.route,
+        "product_filters": decision.product_filters.model_dump(),
+    }
 
 def general_node(state: AgentState):
     # Keep general chat store-scoped and free of an extra LLM call.
